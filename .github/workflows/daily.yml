@@ -1,0 +1,22 @@
+name: Daily Market Bot
+
+on:
+  schedule:
+    - cron: "0 22 * * *"   # JST 7:00 = UTC 22:00
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run script
+        env:
+          LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python app.py
