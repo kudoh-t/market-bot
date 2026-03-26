@@ -364,6 +364,7 @@ def main():
 
     d = get_market_data()
     mode = detect_mode(d["vix_price"])
+    today = datetime.now().strftime("%Y.%m.%d")
 
     if mode == "war":
         score = calc_war_score(d)
