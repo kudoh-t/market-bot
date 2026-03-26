@@ -86,9 +86,11 @@ def get_market_data():
         vxf_price = meta["regularMarketPrice"]
         vxf_prev = meta["chartPreviousClose"]
         vxf_change = (vxf_price - vxf_prev) / vxf_prev * 100
-    except:
+    except Exception as e:
+        print("VIX先物エラー:", e)
+        print("取得データ:", vxf)
         vxf_price, vxf_change = 0.0, 0.0
-
+    
     # NASDAQ先物（NQ=F）
     try:
         nq = get_json("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F")
