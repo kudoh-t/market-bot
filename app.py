@@ -99,7 +99,7 @@ def get_market_data():
     except Exception:
         nk_price, nk_change = 0.0, 0.0
 
-    # S&P500先物（ES=F） ※参考用（スコアには使わない or 補助）
+    # S&P500先物（ES=F）
     try:
         es = get_json("https://query1.finance.yahoo.com/v8/finance/chart/ES=F")
         meta = es["chart"]["result"][0]["meta"]
@@ -136,6 +136,29 @@ def get_market_data():
         "us10y_price": us10y_price,
         "us10y_change": us10y_change,
     }
+
+
+# ============================
+# モード判定（戦時 / 平時 / 移行期）
+# ============================
+
+def detect_mode(vix_price: float) -> str:
+    """
+    VIX水準でモードを自動判定
+    - vix >= 20: 戦時モード
+    - vix <= 15: 平時モード
+    - 15 < vix < 20: 移行期
+    """
+    if vix_price == 0.0:
+        # 取得失敗時は様子見扱い
+        return "transition"
+
+    if vix_price >= 20:
+        return "war"
+    elif vix_price <= 15:
+        return "peace"
+    else:
+        return "transition"
 
 
 # ============================
@@ -193,14 +216,10 @@ def calc_war_score(d):
     return score
 
 
-# ============================
-# メイン処理
-# ============================
-
-def build_message(d, score: int) -> str:
-    # 見やすいフォーマット（カテゴリ別）
+def build_war_message(d, score: int) -> str:
     msg = []
     msg.append("【戦時モード：相場反転スコア】\n")
+    msg.append(f"VIX水準: {d['vix_price']:.2f}（戦時判定用）\n")
 
     msg.append("▼ 安全資産（ピークアウトを見る）")
     msg.append(f"・金　　: {d['gold_price']:.2f}（{d['gold_change']:.2f}%）")
@@ -230,16 +249,130 @@ def build_message(d, score: int) -> str:
     return "\n".join(msg)
 
 
+# ============================
+# 平時モードスコア（トレンド・金利・株価）
+# ============================
+
+def calc_peace_score(d):
+    """
+    平時モード用スコア
+    - 金利低下＋株価指数上昇＋日経上昇＋為替（円安）を評価
+    100点満点イメージ
+    """
+    score = 0
+
+    # --- 金利（米10年）: 低下で加点（株式に追い風） ---
+    if d["us10y_price"] != 0:
+        if d["us10y_change"] <= -2:
+            score += 25
+        elif -2 < d["us10y_change"] < 0:
+            score += 15
+
+    # --- 株価指数（NASDAQ, S&P500, 日経）: 上昇で加点 ---
+    if d["nq_price"] != 0:
+        if d["nq_change"] >= 1:
+            score += 20
+        elif 0 < d["nq_change"] < 1:
+            score += 10
+
+    if d["es_price"] != 0:
+        if d["es_change"] >= 1:
+            score += 20
+        elif 0 < d["es_change"] < 1:
+            score += 10
+
+    if d["nk_price"] != 0:
+        if d["nk_change"] >= 1:
+            score += 20
+        elif 0 < d["nk_change"] < 1:
+            score += 10
+
+    # --- 為替（USD/JPY）: 円安方向で加点（日本株に追い風） ---
+    if d["usd_jpy"] != 0:
+        if d["usd_jpy"] >= 152:
+            score += 15
+        elif 150 <= d["usd_jpy"] < 152:
+            score += 8
+
+    return score
+
+
+def build_peace_message(d, score: int) -> str:
+    msg = []
+    msg.append("【平時モード：金利・株価トレンドスコア】\n")
+    msg.append(f"VIX水準: {d['vix_price']:.2f}（平時判定用）\n")
+
+    msg.append("▼ 金利（低下は株式に追い風）")
+    msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）\n")
+
+    msg.append("▼ 株価指数（トレンド確認）")
+    msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
+    msg.append(f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）")
+    msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）\n")
+
+    msg.append("▼ 為替（円安は日本株に追い風）")
+    msg.append(f"・USD/JPY  : {d['usd_jpy']:.2f}\n")
+
+    msg.append(f"総合スコア：{score}点")
+
+    if score >= 70:
+        msg.append("→ 上昇トレンド優勢（押し目買い・順張り有利）")
+    elif score >= 50:
+        msg.append("→ 上昇バイアスあり（銘柄を選べば買い有利）")
+    else:
+        msg.append("→ トレンド不明瞭（無理なポジション拡大は控えめに）")
+
+    return "\n".join(msg)
+
+
+# ============================
+# 移行期メッセージ（戦時と平時の間）
+# ============================
+
+def build_transition_message(d) -> str:
+    msg = []
+    msg.append("【移行期モード：様子見シグナル】\n")
+    msg.append("VIXが15〜20のレンジにあり、戦時モードと平時モードの境界にいます。\n")
+    msg.append(f"VIX水準: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n")
+
+    msg.append("▼ 参考指標")
+    msg.append(f"・金　　: {d['gold_price']:.2f}（{d['gold_change']:.2f}%）")
+    msg.append(f"・原油　: {d['wti_price']:.2f}（{d['wti_change']:.2f}%）")
+    msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
+    msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）")
+    msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）")
+    msg.append(f"・USD/JPY  : {d['usd_jpy']:.2f}\n")
+
+    msg.append("→ 戦時ロジック・平時ロジックのどちらも中途半端に効くゾーンです。")
+    msg.append("→ 新規ポジションは小ロット、もしくは様子見が無難です。")
+
+    return "\n".join(msg)
+
+
+# ============================
+# メイン処理（戦時・平時 自動切り替え）
+# ============================
+
 def main():
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
         print("エラー: LINE_ACCESS_TOKEN または LINE_USER_ID が設定されていません。")
         return
 
     d = get_market_data()
-    score = calc_war_score(d)
-    msg = build_message(d, score)
+    mode = detect_mode(d["vix_price"])
+
+    if mode == "war":
+        score = calc_war_score(d)
+        msg = build_war_message(d, score)
+    elif mode == "peace":
+        score = calc_peace_score(d)
+        msg = build_peace_message(d, score)
+    else:
+        msg = build_transition_message(d)
+
     send_line(msg)
 
 
 if __name__ == "__main__":
     main()
+
