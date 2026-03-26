@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+from datetime import datetime
 
 # ============================
 # LINE Messaging API
@@ -217,8 +218,9 @@ def calc_war_score(d):
 
 
 def build_war_message(d, score: int) -> str:
+    today = datetime.now().strftime("%Y.%m.%d")
     msg = []
-    msg.append("【戦時モード：相場反転スコア】\n")
+    msg.append(f"【{today} 戦時モード：相場反転スコア】\n")
     msg.append(f"VIX水準: {d['vix_price']:.2f}（戦時判定用）\n")
 
     msg.append("▼ 安全資産（ピークアウトを見る）")
@@ -298,8 +300,9 @@ def calc_peace_score(d):
 
 
 def build_peace_message(d, score: int) -> str:
+    today = datetime.now().strftime("%Y.%m.%d")
     msg = []
-    msg.append("【平時モード：金利・株価トレンドスコア】\n")
+    msg.append(f"【{today} 平時モード：金利・株価トレンドスコア】\n")
     msg.append(f"VIX水準: {d['vix_price']:.2f}（平時判定用）\n")
 
     msg.append("▼ 金利（低下は株式に追い風）")
@@ -330,8 +333,9 @@ def build_peace_message(d, score: int) -> str:
 # ============================
 
 def build_transition_message(d) -> str:
+    today = datetime.now().strftime("%Y.%m.%d")
     msg = []
-    msg.append("【移行期モード：様子見シグナル】\n")
+    msg.append(f"【{today} 移行期モード：様子見シグナル】\n")
     msg.append("VIXが15〜20のレンジにあり、戦時モードと平時モードの境界にいます。\n")
     msg.append(f"VIX水準: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n")
 
@@ -375,4 +379,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
