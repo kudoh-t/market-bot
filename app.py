@@ -31,16 +31,18 @@ def send_line(text):
 # ============================
 
 def get_json(url):
-    # Yahoo Finance and others often block default python-requests User-Agent
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/58.0.3029.110 Safari/537.3"
+        )
     }
     return requests.get(url, headers=headers).json()
 
+
 def get_market_data():
     # 金（Gold）
-
-    # Gold (GC=F)
     try:
         gold = get_json("https://query1.finance.yahoo.com/v8/finance/chart/GC=F")
         meta = gold["chart"]["result"][0]["meta"]
@@ -48,7 +50,7 @@ def get_market_data():
         gold_prev = meta["chartPreviousClose"]
         gold_change = (gold_price - gold_prev) / gold_prev * 100
     except:
-        gold_price, gold_change = 0, 0
+        gold_price, gold_change = 0.0, 0.0
 
     # WTI Crude Oil (CL=F)
     try:
@@ -58,7 +60,7 @@ def get_market_data():
         wti_prev = meta["chartPreviousClose"]
         wti_change = (wti_price - wti_prev) / wti_prev * 100
     except:
-        wti_price, wti_change = 0, 0
+        wti_price, wti_change = 0.0, 0.0
 
     # 為替（USD/JPY）
     try:
@@ -67,7 +69,7 @@ def get_market_data():
     except:
         usd_jpy = 0.0
 
-    # VIX（恐怖指数）
+    # VIX（現物）
     try:
         vix = get_json("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX")
         meta = vix["chart"]["result"][0]["meta"]
@@ -76,6 +78,16 @@ def get_market_data():
         vix_change = (vix_price - vix_prev) / vix_prev * 100
     except:
         vix_price, vix_change = 0.0, 0.0
+
+    # VIX先物（VX=F）
+    try:
+        vxf = get_json("https://query1.finance.yahoo.com/v8/finance/chart/VX=F")
+        meta = vxf["chart"]["result"][0]["meta"]
+        vxf_price = meta["regularMarketPrice"]
+        vxf_prev = meta["chartPreviousClose"]
+        vxf_change = (vxf_price - vxf_prev) / vxf_prev * 100
+    except:
+        vxf_price, vxf_change = 0.0, 0.0
 
     # NASDAQ先物（NQ=F）
     try:
@@ -87,6 +99,36 @@ def get_market_data():
     except:
         nq_price, nq_change = 0.0, 0.0
 
+    # 日経平均先物（CME：NK=F）
+    try:
+        nk = get_json("https://query1.finance.yahoo.com/v8/finance/chart/NK=F")
+        meta = nk["chart"]["result"][0]["meta"]
+        nk_price = meta["regularMarketPrice"]
+        nk_prev = meta["chartPreviousClose"]
+        nk_change = (nk_price - nk_prev) / nk_prev * 100
+    except:
+        nk_price, nk_change = 0.0, 0.0
+
+    # S&P500先物（ES=F）
+    try:
+        es = get_json("https://query1.finance.yahoo.com/v8/finance/chart/ES=F")
+        meta = es["chart"]["result"][0]["meta"]
+        es_price = meta["regularMarketPrice"]
+        es_prev = meta["chartPreviousClose"]
+        es_change = (es_price - es_prev) / es_prev * 100
+    except:
+        es_price, es_change = 0.0, 0.0
+
+    # 米10年金利（US10Y：^TNX）
+    try:
+        us10y = get_json("https://query1.finance.yahoo.com/v8/finance/chart/%5ETNX")
+        meta = us10y["chart"]["result"][0]["meta"]
+        us10y_price = meta["regularMarketPrice"]
+        us10y_prev = meta["chartPreviousClose"]
+        us10y_change = (us10y_price - us10y_prev) / us10y_prev * 100
+    except:
+        us10y_price, us10y_change = 0.0, 0.0
+
     return {
         "gold_price": gold_price,
         "gold_change": gold_change,
@@ -95,8 +137,16 @@ def get_market_data():
         "usd_jpy": usd_jpy,
         "vix_price": vix_price,
         "vix_change": vix_change,
+        "vxf_price": vxf_price,
+        "vxf_change": vxf_change,
         "nq_price": nq_price,
-        "nq_change": nq_change
+        "nq_change": nq_change,
+        "nk_price": nk_price,
+        "nk_change": nk_change,
+        "es_price": es_price,
+        "es_change": es_change,
+        "us10y_price": us10y_price,
+        "us10y_change": us10y_change,
     }
 
 
@@ -108,41 +158,67 @@ def calc_war_score(d):
     score = 0
 
     # --- 金（25点） ---
-    if d["gold_price"] != 0:  # データ取得成功時のみ計算
-        if d["gold_change"] < 0:
+    if d["gold_price"] != 0:
+        if d["gold_change"] > 0.3:
             score += 25
-        elif 0 <= d["gold_change"] <= 1:
-            score += 15
+        elif 0 < d["gold_change"] <= 0.3:
+            score += 10
 
     # --- 原油（25点） ---
     if d["wti_price"] != 0:
-        if d["wti_change"] < 0:
+        if d["wti_change"] > 0.5:
             score += 25
-        elif 0 <= d["wti_change"] <= 1:
-            score += 15
+        elif 0 < d["wti_change"] <= 0.5:
+            score += 10
 
-    # --- 為替（15点） ---
-    # ※簡易的に「円高＝反転サイン」とする
-    # 前日比データがないため、1円以上の円高を仮定的に判定
-    # （必要なら後で改善可能）
-    # ここでは「150円 → 149円」などのケースを想定
-    # → 実際には前日値を別APIで取得可能
-    score += 10  # 横ばい扱い（最低限の点）
-    # ※為替は後で強化できます
+    # --- 為替（15点・簡易） ---
+    # 仮に「149円未満なら円高気味」として加点
+    if d["usd_jpy"] < 149:
+        score += 15
+    elif 149 <= d["usd_jpy"] <= 151:
+        score += 5
 
-    # --- VIX（20点） ---
+    # --- VIX（現物：20点） ---
     if d["vix_price"] != 0:
         if d["vix_change"] <= -5:
             score += 20
-        elif -5 < d["vix_change"] < 5:
+        elif -5 < d["vix_change"] < 0:
             score += 10
+
+    # --- VIX先物（25点） ---
+    if d["vxf_price"] != 0:
+        if d["vxf_change"] <= -5:
+            score += 25
+        elif -5 < d["vxf_change"] < 0:
+            score += 15
 
     # --- NASDAQ先物（15点） ---
     if d["nq_price"] != 0:
         if d["nq_change"] >= 1:
             score += 15
-        elif -1 < d["nq_change"] < 1:
+        elif 0 < d["nq_change"] < 1:
             score += 10
+
+    # --- 日経平均先物（30点） ---
+    if d["nk_price"] != 0:
+        if d["nk_change"] >= 1:
+            score += 30
+        elif 0 < d["nk_change"] < 1:
+            score += 15
+
+    # --- S&P500先物（25点） ---
+    if d["es_price"] != 0:
+        if d["es_change"] >= 1:
+            score += 25
+        elif 0 < d["es_change"] < 1:
+            score += 10
+
+    # --- 米10年金利（15点） ---
+    if d["us10y_price"] != 0:
+        if d["us10y_change"] <= -2:
+            score += 15
+        elif -2 < d["us10y_change"] < 0:
+            score += 8
 
     return score
 
@@ -152,7 +228,6 @@ def calc_war_score(d):
 # ============================
 
 def main():
-    # 環境変数のチェック
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
         print("エラー: LINE_ACCESS_TOKEN または LINE_USER_ID が設定されていません。")
         return
@@ -162,11 +237,15 @@ def main():
 
     msg = (
         "【戦時モード：相場反転スコア】\n\n"
-        f"■ 金：{d['gold_price']}（{d['gold_change']:.2f}%）\n"
-        f"■ 原油：{d['wti_price']}（{d['wti_change']:.2f}%）\n"
+        f"■ 金：{d['gold_price']:.2f}（{d['gold_change']:.2f}%）\n"
+        f"■ 原油：{d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n"
         f"■ USD/JPY：{d['usd_jpy']:.2f}\n"
-        f"■ VIX：{d['vix_price']}（{d['vix_change']:.2f}%）\n"
-        f"■ NASDAQ先物：{d['nq_price']}（{d['nq_change']:.2f}%）\n\n"
+        f"■ VIX：{d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n"
+        f"■ VIX先物：{d['vxf_price']:.2f}（{d['vxf_change']:.2f}%）\n"
+        f"■ NASDAQ先物：{d['nq_price']:.2f}（{d['nq_change']:.2f}%）\n"
+        f"■ 日経平均先物：{d['nk_price']:.2f}（{d['nk_change']:.2f}%）\n"
+        f"■ S&P500先物：{d['es_price']:.2f}（{d['es_change']:.2f}%）\n"
+        f"■ 米10年金利：{d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）\n\n"
         f"総合スコア：{score}点\n"
     )
 
