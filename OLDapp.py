@@ -1,7 +1,7 @@
 import requests
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ============================
 # LINE Messaging API
@@ -11,11 +11,6 @@ LINE_USER_ID = os.getenv("LINE_USER_ID")
 
 
 def send_line(text: str):
-    if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
-        print("LINE設定が不足しているため、標準出力のみ行います。")
-        print(text)
-        return
-
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
         "Content-Type": "application/json",
@@ -33,82 +28,114 @@ def send_line(text: str):
 
 
 # ============================
-# 共通ユーティリティ
-# ============================
-
-def get_json(url: str):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        return requests.get(url, headers=headers, timeout=10).json()
-    except:
-        return None
-
-
-def get_prev_business_day():
-    d = datetime.utcnow().date() - timedelta(days=1)
-    while d.weekday() >= 5:
-        d -= timedelta(days=1)
-    return d.isoformat()
-
-
-# ============================
 # 市場データ取得
 # ============================
 
-def fetch_yahoo(symbol: str):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    data = get_json(url)
-    try:
-        meta = data["chart"]["result"][0]["meta"]
-        price = meta["regularMarketPrice"]
-        prev = meta["chartPreviousClose"]
-        change = (price - prev) / prev * 100 if prev != 0 else 0.0
-        return price, change
-    except:
-        return 0.0, 0.0
+def get_json(url: str):
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/58.0.3029.110 Safari/537.3"
+        )
+    }
+    return requests.get(url, headers=headers).json()
 
 
 def get_market_data():
-    missing = []
-
-    gold_p, gold_c = fetch_yahoo("GC=F")
-    if gold_p == 0: missing.append("Gold")
-
-    wti_p, wti_c = fetch_yahoo("CL=F")
-    if wti_p == 0: missing.append("WTI")
-
-    vix_p, vix_c = fetch_yahoo("%5EVIX")
-    if vix_p == 0: missing.append("VIX")
-
-    nq_p, nq_c = fetch_yahoo("NQ=F")
-    nk_p, nk_c = fetch_yahoo("NK=F")
-    es_p, es_c = fetch_yahoo("ES=F")
-    us10y_p, us10y_c = fetch_yahoo("%5ETNX")
-
-    # 為替（USD/JPY）＋前日比
+    # 金（Gold）
     try:
-        fx_latest = get_json("https://api.frankfurter.app/latest?from=USD&to=JPY")
-        usd_jpy = fx_latest["rates"]["JPY"]
+        gold = get_json("https://query1.finance.yahoo.com/v8/finance/chart/GC=F")
+        meta = gold["chart"]["result"][0]["meta"]
+        gold_price = meta["regularMarketPrice"]
+        gold_prev = meta["chartPreviousClose"]
+        gold_change = (gold_price - gold_prev) / gold_prev * 100
+    except Exception:
+        gold_price, gold_change = 0.0, 0.0
 
-        prev_date = get_prev_business_day()
-        fx_prev = get_json(f"https://api.frankfurter.app/{prev_date}?from=USD&to=JPY")
-        usd_prev = fx_prev["rates"]["JPY"]
+    # WTI Crude Oil (CL=F)
+    try:
+        wti = get_json("https://query1.finance.yahoo.com/v8/finance/chart/CL=F")
+        meta = wti["chart"]["result"][0]["meta"]
+        wti_price = meta["regularMarketPrice"]
+        wti_prev = meta["chartPreviousClose"]
+        wti_change = (wti_price - wti_prev) / wti_prev * 100
+    except Exception:
+        wti_price, wti_change = 0.0, 0.0
 
-        usd_jpy_change = (usd_jpy - usd_prev) / usd_prev * 100
-    except:
-        usd_jpy, usd_jpy_change = 0.0, 0.0
-        missing.append("USDJPY")
+    # 為替（USD/JPY）
+    try:
+        fx = get_json("https://api.frankfurter.app/latest?from=USD&to=JPY")
+        usd_jpy = fx["rates"]["JPY"]
+    except Exception:
+        usd_jpy = 0.0
+
+    # VIX（現物）
+    try:
+        vix = get_json("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX")
+        meta = vix["chart"]["result"][0]["meta"]
+        vix_price = meta["regularMarketPrice"]
+        vix_prev = meta["chartPreviousClose"]
+        vix_change = (vix_price - vix_prev) / vix_prev * 100
+    except Exception:
+        vix_price, vix_change = 0.0, 0.0
+
+    # NASDAQ先物（NQ=F）
+    try:
+        nq = get_json("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F")
+        meta = nq["chart"]["result"][0]["meta"]
+        nq_price = meta["regularMarketPrice"]
+        nq_prev = meta["chartPreviousClose"]
+        nq_change = (nq_price - nq_prev) / nq_prev * 100
+    except Exception:
+        nq_price, nq_change = 0.0, 0.0
+
+    # 日経平均先物（CME：NK=F）
+    try:
+        nk = get_json("https://query1.finance.yahoo.com/v8/finance/chart/NK=F")
+        meta = nk["chart"]["result"][0]["meta"]
+        nk_price = meta["regularMarketPrice"]
+        nk_prev = meta["chartPreviousClose"]
+        nk_change = (nk_price - nk_prev) / nk_prev * 100
+    except Exception:
+        nk_price, nk_change = 0.0, 0.0
+
+    # S&P500先物（ES=F）
+    try:
+        es = get_json("https://query1.finance.yahoo.com/v8/finance/chart/ES=F")
+        meta = es["chart"]["result"][0]["meta"]
+        es_price = meta["regularMarketPrice"]
+        es_prev = meta["chartPreviousClose"]
+        es_change = (es_price - es_prev) / es_prev * 100
+    except Exception:
+        es_price, es_change = 0.0, 0.0
+
+    # 米10年金利（US10Y：^TNX）
+    try:
+        us10y = get_json("https://query1.finance.yahoo.com/v8/finance/chart/%5ETNX")
+        meta = us10y["chart"]["result"][0]["meta"]
+        us10y_price = meta["regularMarketPrice"]
+        us10y_prev = meta["chartPreviousClose"]
+        us10y_change = (us10y_price - us10y_prev) / us10y_prev * 100
+    except Exception:
+        us10y_price, us10y_change = 0.0, 0.0
 
     return {
-        "gold_price": gold_p, "gold_change": gold_c,
-        "wti_price": wti_p, "wti_change": wti_c,
-        "vix_price": vix_p, "vix_change": vix_c,
-        "nq_price": nq_p, "nq_change": nq_c,
-        "nk_price": nk_p, "nk_change": nk_c,
-        "es_price": es_p, "es_change": es_c,
-        "us10y_price": us10y_p, "us10y_change": us10y_c,
-        "usd_jpy": usd_jpy, "usd_jpy_change": usd_jpy_change,
-        "missing": missing,
+        "gold_price": gold_price,
+        "gold_change": gold_change,
+        "wti_price": wti_price,
+        "wti_change": wti_change,
+        "usd_jpy": usd_jpy,
+        "vix_price": vix_price,
+        "vix_change": vix_change,
+        "nq_price": nq_price,
+        "nq_change": nq_change,
+        "nk_price": nk_price,
+        "nk_change": nk_change,
+        "es_price": es_price,
+        "es_change": es_change,
+        "us10y_price": us10y_price,
+        "us10y_change": us10y_change,
     }
 
 
@@ -116,175 +143,227 @@ def get_market_data():
 # モード判定（戦時 / 平時 / 移行期）
 # ============================
 
-def detect_mode(vix_price, vix_change):
-    if vix_price == 0:
+def detect_mode(vix_price: float) -> str:
+    """
+    VIX水準でモードを自動判定
+    - vix >= 20: 戦時モード
+    - vix <= 15: 平時モード
+    - 15 < vix < 20: 移行期
+    """
+    if vix_price == 0.0:
+        # 取得失敗時は様子見扱い
         return "transition"
 
-    # 急騰 → 戦時寄り
-    if vix_change >= 10 and vix_price >= 20:
+    if vix_price >= 20:
         return "war"
-
-    # 急低下 → 平時寄り
-    if vix_change <= -10 and vix_price <= 20:
+    elif vix_price <= 15:
         return "peace"
-
-    if vix_price >= 25:
-        return "war"
-    if vix_price <= 18:
-        return "peace"
-    return "transition"
+    else:
+        return "transition"
 
 
 # ============================
-# 戦時モードスコア（正規化）
+# 戦時モード反転スコア（ピークアウト検知版）
 # ============================
 
 def calc_war_score(d):
     score = 0
-    max_score = 0
 
-    # 金
+    # --- 安全資産（Gold, WTI）: 下落で加点 ---
     if d["gold_price"] != 0:
-        max_score += 15
-        if d["gold_change"] < 0:
+        if d["gold_change"] <= -0.3:
             score += 15
-
-    # 原油
-    if d["wti_price"] != 0:
-        max_score += 15
-        if d["wti_change"] < 0:
-            score += 15
-
-    # VIX
-    if d["vix_price"] != 0:
-        max_score += 25
-        if d["vix_change"] <= -5:
-            score += 25
-        elif d["vix_change"] < 0:
-            score += 10
-
-    # 株価指数
-    if d["nq_price"] != 0:
-        max_score += 15
-        if d["nq_change"] >= 1:
-            score += 15
-
-    if d["nk_price"] != 0:
-        max_score += 15
-        if d["nk_change"] >= 1:
-            score += 15
-
-    # 金利
-    if d["us10y_price"] != 0:
-        max_score += 10
-        if d["us10y_change"] < 0:
-            score += 10
-
-    # 為替（円安方向）
-    if d["usd_jpy"] != 0:
-        max_score += 5
-        if d["usd_jpy_change"] > 0:
+        elif -0.3 < d["gold_change"] < 0:
             score += 5
 
-    if max_score == 0:
-        return 0
+    if d["wti_price"] != 0:
+        if d["wti_change"] <= -0.5:
+            score += 15
+        elif -0.5 < d["wti_change"] < 0:
+            score += 5
 
-    return round(score / max_score * 100)
+    # --- 恐怖指数（VIX）: 低下で加点 ---
+    if d["vix_price"] != 0:
+        if d["vix_change"] <= -5:
+            score += 25
+        elif -5 < d["vix_change"] < 0:
+            score += 10
+
+    # --- 株価指数（NASDAQ, 日経）: 上昇で加点 ---
+    if d["nq_price"] != 0:
+        if d["nq_change"] >= 1:
+            score += 15
+        elif 0 < d["nq_change"] < 1:
+            score += 8
+
+    if d["nk_price"] != 0:
+        if d["nk_change"] >= 1:
+            score += 15
+        elif 0 < d["nk_change"] < 1:
+            score += 8
+
+    # --- 米10年金利: 低下で加点 ---
+    if d["us10y_price"] != 0:
+        if d["us10y_change"] <= -2:
+            score += 10
+        elif -2 < d["us10y_change"] < 0:
+            score += 5
+
+    # --- 為替（USD/JPY）: 円高方向で加点（簡易） ---
+    if d["usd_jpy"] != 0:
+        if d["usd_jpy"] < 149:
+            score += 5
+
+    return score
+
+
+def build_war_message(d, score: int) -> str:
+    today = datetime.now().strftime("%Y.%m.%d")
+    msg = []
+    msg.append(f"【{today} 戦時モード：相場反転スコア】")
+    msg.append(f"VIX水準: {d['vix_price']:.2f}（戦時判定用）\n")
+
+    msg.append("▼ 安全資産（ピークアウトを見る）")
+    msg.append(f"・金　　: {d['gold_price']:.2f}（{d['gold_change']:.2f}%）")
+    msg.append(f"・原油　: {d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n")
+
+    msg.append("▼ 恐怖指数")
+    msg.append(f"・VIX　 : {d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n")
+
+    msg.append("▼ 株価指数")
+    msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
+    msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）")
+    msg.append(f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）\n")
+
+    msg.append("▼ 金利・為替")
+    msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）")
+    msg.append(f"・USD/JPY  : {d['usd_jpy']:.2f}\n")
+
+    msg.append(f"総合スコア：{score}点")
+
+    if score >= 70:
+        msg.append("→ 反転確定ゾーン（本格的なリスクオン転換）")
+    elif score >= 50:
+        msg.append("→ 反転の可能性大（逆張りの準備段階）")
+    else:
+        msg.append("→ まだ有事継続（無理な逆張りは避ける）")
+
+    return "\n".join(msg)
 
 
 # ============================
-# 平時モードスコア（正規化）
+# 平時モードスコア（トレンド・金利・株価）
 # ============================
 
 def calc_peace_score(d):
+    """
+    平時モード用スコア
+    - 金利低下＋株価指数上昇＋日経上昇＋為替（円安）を評価
+    100点満点イメージ
+    """
     score = 0
-    max_score = 0
 
-    # 金利 × 株価（健全な金利低下）
-    if d["us10y_price"] != 0 and d["nq_price"] != 0:
-        max_score += 25
-        if d["us10y_change"] < 0 and d["nq_change"] > 0:
+    # --- 金利（米10年）: 低下で加点（株式に追い風） ---
+    if d["us10y_price"] != 0:
+        if d["us10y_change"] <= -2:
             score += 25
-        elif d["us10y_change"] < 0 and d["nq_change"] < 0:
-            score -= 10
+        elif -2 < d["us10y_change"] < 0:
+            score += 15
 
-    # 株価指数
-    for key in ["nq_change", "es_change", "nk_change"]:
-        if d[key.replace("_change", "_price")] != 0:
-            max_score += 20
-            if d[key] >= 1:
-                score += 20
-            elif d[key] > 0:
-                score += 10
+    # --- 株価指数（NASDAQ, S&P500, 日経）: 上昇で加点 ---
+    if d["nq_price"] != 0:
+        if d["nq_change"] >= 1:
+            score += 20
+        elif 0 < d["nq_change"] < 1:
+            score += 10
 
-    # 為替（円安）
+    if d["es_price"] != 0:
+        if d["es_change"] >= 1:
+            score += 20
+        elif 0 < d["es_change"] < 1:
+            score += 10
+
+    if d["nk_price"] != 0:
+        if d["nk_change"] >= 1:
+            score += 20
+        elif 0 < d["nk_change"] < 1:
+            score += 10
+
+    # --- 為替（USD/JPY）: 円安方向で加点（日本株に追い風） ---
     if d["usd_jpy"] != 0:
-        max_score += 15
         if d["usd_jpy"] >= 152:
             score += 15
-        elif d["usd_jpy"] >= 150:
+        elif 150 <= d["usd_jpy"] < 152:
             score += 8
 
-    if max_score == 0:
-        return 0
-
-    return round(score / max_score * 100)
+    return score
 
 
-# ============================
-# メッセージ生成
-# ============================
+def build_peace_message(d, score: int) -> str:
+    today = datetime.now().strftime("%Y.%m.%d")
+    msg = []
+    msg.append(f"【{today} 平時モード：金利・株価トレンドスコア】")
+    msg.append(f"VIX水準: {d['vix_price']:.2f}（平時判定用）\n")
 
-def build_status(d):
-    return (
-        f"VIX: {d['vix_price']:.2f} ({d['vix_change']:+.2f}%)\n"
-        f"米10Y: {d['us10y_price']:.2f} ({d['us10y_change']:+.2f}%)\n"
-        f"USDJPY: {d['usd_jpy']:.2f} ({d['usd_jpy_change']:+.2f}%)\n"
-        f"NQ: {d['nq_price']:.0f} ({d['nq_change']:+.2f}%)\n"
-        f"NK: {d['nk_price']:.0f} ({d['nk_change']:+.2f}%)\n"
-    )
+    msg.append("▼ 金利（低下は株式に追い風）")
+    msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）\n")
 
+    msg.append("▼ 株価指数（トレンド確認）")
+    msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
+    msg.append(f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）")
+    msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）\n")
 
-def build_war_message(d, score):
-    msg = "🚨【戦時モード】反転スコア\n"
-    msg += build_status(d)
-    msg += f"\n反転スコア: {score}点\n"
+    msg.append("▼ 為替（円安は日本株に追い風）")
+    msg.append(f"・USD/JPY  : {d['usd_jpy']:.2f}\n")
+
+    msg.append(f"総合スコア：{score}点")
+
     if score >= 70:
-        msg += "🔥 本格反転ゾーン\n"
+        msg.append("→ 上昇トレンド優勢（押し目買い・順張り有利）")
     elif score >= 50:
-        msg += "👀 反転の兆し\n"
+        msg.append("→ 上昇バイアスあり（銘柄を選べば買い有利）")
     else:
-        msg += "⚠️ 有事継続\n"
-    return msg
+        msg.append("→ トレンド不明瞭（無理なポジション拡大は控えめに）")
 
-
-def build_peace_message(d, score):
-    msg = "☀️【平時モード】トレンドスコア\n"
-    msg += build_status(d)
-    msg += f"\nトレンドスコア: {score}点\n"
-    if score >= 70:
-        msg += "📈 強い上昇トレンド\n"
-    elif score >= 50:
-        msg += "🔍 緩やかな上昇\n"
-    else:
-        msg += "☁️ トレンド不明瞭\n"
-    return msg
-
-
-def build_transition_message(d):
-    msg = "⚖️【移行期】様子見推奨\n"
-    msg += build_status(d)
-    msg += "\nVIXが中間帯。無理なエントリーは避けましょう。\n"
-    return msg
+    return "\n".join(msg)
 
 
 # ============================
-# メイン処理
+# 移行期メッセージ（戦時と平時の間）
+# ============================
+
+def build_transition_message(d) -> str:
+    today = datetime.now().strftime("%Y.%m.%d")
+    msg = []
+    msg.append(f"【{today} 移行期モード：様子見シグナル】")
+    msg.append("VIXが15〜20のレンジにあり、戦時モードと平時モードの境界にいます。\n")
+    msg.append(f"VIX水準: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n")
+
+    msg.append("▼ 参考指標")
+    msg.append(f"・金　　: {d['gold_price']:.2f}（{d['gold_change']:.2f}%）")
+    msg.append(f"・原油　: {d['wti_price']:.2f}（{d['wti_change']:.2f}%）")
+    msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
+    msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）")
+    msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）")
+    msg.append(f"・USD/JPY  : {d['usd_jpy']:.2f}\n")
+
+    msg.append("→ 戦時ロジック・平時ロジックのどちらも中途半端に効くゾーンです。")
+    msg.append("→ 新規ポジションは小ロット、もしくは様子見が無難です。")
+
+    return "\n".join(msg)
+
+
+# ============================
+# メイン処理（戦時・平時 自動切り替え）
 # ============================
 
 def main():
+    if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
+        print("エラー: LINE_ACCESS_TOKEN または LINE_USER_ID が設定されていません。")
+        return
+
     d = get_market_data()
-    mode = detect_mode(d["vix_price"], d["vix_change"])
+    mode = detect_mode(d["vix_price"])
 
     if mode == "war":
         score = calc_war_score(d)
@@ -294,9 +373,6 @@ def main():
         msg = build_peace_message(d, score)
     else:
         msg = build_transition_message(d)
-
-    if d["missing"]:
-        msg += f"\n⚠️データ取得失敗: {', '.join(d['missing'])}"
 
     send_line(msg)
 
