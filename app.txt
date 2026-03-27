@@ -2,7 +2,7 @@ import requests
 import json
 import os
 from datetime import datetime
-
+#
 # ============================
 # LINE Messaging API
 # ============================
@@ -199,8 +199,6 @@ def detect_mode(vix_price: float) -> str:
         return "peace"
     else:
         return "transition"
-
-
 # ============================
 # スコアを100点満点にスケーリング
 # ============================
@@ -286,7 +284,7 @@ def calc_war_score(d):
         elif 1 <= d["btc_change"] < 3:
             score += 8
 
-    # --- 補助指標（軽め：金・原油・株価） ---
+    # --- 補助指標（軽め） ---
     if d["gold_change"] < 0:
         score += 5
     if d["wti_change"] < 0:
@@ -297,10 +295,6 @@ def calc_war_score(d):
         score += 5
 
     return score
-
-
-# 戦時モードの理論最大スコア
-WAR_MAX_SCORE = 130  # 上の加点ロジックから算出
 
 
 # ============================
@@ -330,24 +324,13 @@ def calc_peace_score(d):
     elif d["usd_jpy"] >= 150:
         score += 8
 
-    # --- コモディティ（平時のリスクオン判定） ---
-    # 金が下落 or 小動き → リスクオン寄り
-    if d["gold_change"] <= 0:
-        score += 5
-    # 原油上昇 → 景気期待
-    if d["wti_change"] > 0:
-        score += 5
-
     return score
-
-
-PEACE_MAX_SCORE = 115  # 上の加点ロジックから算出
 
 
 # ============================
 # 戦時モードメッセージ
 # ============================
-
+# New file
 def build_war_message(d, score, scaled_score, zone):
     today = datetime.now().strftime("%Y.%m.%d")
     msg = []
@@ -365,15 +348,10 @@ def build_war_message(d, score, scaled_score, zone):
     msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）")
     msg.append(f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）\n")
 
-    msg.append("▼ コモディティ")
-    msg.append(f"・金(Gold): {d['gold_price']:.2f}（{d['gold_change']:.2f}%）")
-    msg.append(f"・原油(WTI): {d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n")
-
     msg.append("▼ 暗号資産")
     msg.append(f"・BTC : {d['btc_price']:.2f}（{d['btc_change']:.2f}%）\n")
 
     msg.append(f"総合スコア：{scaled_score}点（{zone}）")
-    msg.append(f"※ 生スコア：{score} / {WAR_MAX_SCORE}")
 
     return "\n".join(msg)
 
@@ -397,51 +375,22 @@ def build_peace_message(d, score, scaled_score, zone):
     msg.append(f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）")
     msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）\n")
 
-    msg.append("▼ コモディティ")
-    msg.append(f"・金(Gold): {d['gold_price']:.2f}（{d['gold_change']:.2f}%）")
-    msg.append(f"・原油(WTI): {d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n")
-
     msg.append(f"総合スコア：{scaled_score}点（{zone}）")
-    msg.append(f"※ 生スコア：{score} / {PEACE_MAX_SCORE}")
 
     return "\n".join(msg)
 
 
 # ============================
-# 移行期メッセージ（データ＋両スコア）
+# 移行期メッセージ
 # ============================
 
-def build_transition_message(d, war_score, war_scaled, war_zone,
-                             peace_score, peace_scaled, peace_zone):
+def build_transition_message(d):
     today = datetime.now().strftime("%Y.%m.%d")
     msg = []
     msg.append(f"【{today} 移行期モード：様子見】")
     msg.append(f"VIX水準: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n")
-
-    msg.append("▼ 金利・イールドカーブ")
-    msg.append(f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）")
-    msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）")
-    msg.append(f"・イールドカーブ(2Y-10Y): {d['yield_spread']:.2f}\n")
-
-    msg.append("▼ 株価指数")
-    msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
-    msg.append(f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）")
-    msg.append(f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）\n")
-
-    msg.append("▼ コモディティ")
-    msg.append(f"・金(Gold): {d['gold_price']:.2f}（{d['gold_change']:.2f}%）")
-    msg.append(f"・原油(WTI): {d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n")
-
-    msg.append("▼ 暗号資産")
-    msg.append(f"・BTC : {d['btc_price']:.2f}（{d['btc_change']:.2f}%）\n")
-
-    msg.append("▼ スコア（参考値）")
-    msg.append(f"・戦時ロジック：{war_scaled}点（{war_zone}）  [生スコア {war_score}/{WAR_MAX_SCORE}]")
-    msg.append(f"・平時ロジック：{peace_scaled}点（{peace_zone}）  [生スコア {peace_score}/{PEACE_MAX_SCORE}]\n")
-
     msg.append("→ 戦時ロジック・平時ロジックのどちらも効きにくいゾーンです。")
     msg.append("→ 新規ポジションは控えめが無難です。")
-
     return "\n".join(msg)
 
 
@@ -459,31 +408,18 @@ def main():
 
     if mode == "war":
         raw_score = calc_war_score(d)
-        scaled = scale_score(raw_score, WAR_MAX_SCORE)
+        scaled = scale_score(raw_score, 155)
         zone = classify_zone(scaled, "war")
         msg = build_war_message(d, raw_score, scaled, zone)
 
     elif mode == "peace":
         raw_score = calc_peace_score(d)
-        scaled = scale_score(raw_score, PEACE_MAX_SCORE)
+        scaled = scale_score(raw_score, 110)
         zone = classify_zone(scaled, "peace")
         msg = build_peace_message(d, raw_score, scaled, zone)
 
     else:
-        # 移行期：両方のスコアを計算して参考表示
-        war_raw = calc_war_score(d)
-        war_scaled = scale_score(war_raw, WAR_MAX_SCORE)
-        war_zone = classify_zone(war_scaled, "war")
-
-        peace_raw = calc_peace_score(d)
-        peace_scaled = scale_score(peace_raw, PEACE_MAX_SCORE)
-        peace_zone = classify_zone(peace_scaled, "peace")
-
-        msg = build_transition_message(
-            d,
-            war_raw, war_scaled, war_zone,
-            peace_raw, peace_scaled, peace_zone
-        )
+        msg = build_transition_message(d)
 
     send_line(msg)
 
