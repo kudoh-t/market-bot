@@ -359,7 +359,7 @@ def build_war_message(d, score, scaled_score, zone):
 # ============================
 # 平時モードメッセージ
 # ============================
-
+#
 def build_peace_message(d, score, scaled_score, zone):
     today = datetime.now().strftime("%Y.%m.%d")
     msg = []
