@@ -330,7 +330,7 @@ def calc_peace_score(d):
 # ============================
 # 戦時モードメッセージ
 # ============================
-
+# New file
 def build_war_message(d, score, scaled_score, zone):
     today = datetime.now().strftime("%Y.%m.%d")
     msg = []
