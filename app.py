@@ -2,6 +2,7 @@ import requests
 import json
 import os
 from datetime import datetime, timezone, timedelta
+from bs4 import BeautifulSoup
 
 # ============================
 # LINE Messaging API
@@ -58,6 +59,92 @@ def get_data_date(meta):
 # 市場データ取得（イールドカーブ修正済）
 # ============================
 
+
+def fetch_vix_futures():
+    # -----------------------------
+    # ① Yahoo Finance（query1 → query2）
+    # -----------------------------
+    yahoo_urls = [
+        "https://query1.finance.yahoo.com/v8/finance/chart/VX=F",
+        "https://query2.finance.yahoo.com/v8/finance/chart/VX=F"
+    ]
+
+    for url in yahoo_urls:
+        try:
+            data = get_json(url)
+            result = data.get("chart", {}).get("result")
+            if not result:
+                continue
+
+            meta = result[0].get("meta", {})
+            price = meta.get("regularMarketPrice")
+            prev = meta.get("chartPreviousClose")
+
+            if price is None or prev is None:
+                continue
+
+            change = (price - prev) / prev * 100
+            return price, change
+
+        except Exception:
+            continue
+
+    # -----------------------------
+    # ② CME（公式 HTML パース）
+    # -----------------------------
+    try:
+        url = "https://www.cmegroup.com/markets/equities/volatility/vix.quotes.html"
+        html = requests.get(url, timeout=5).text
+        soup = BeautifulSoup(html, "html.parser")
+
+        # CME の価格は <span class="last"> に入っている
+        price_tag = soup.find("span", class_="last")
+        if price_tag:
+            price = float(price_tag.text.replace(",", ""))
+
+            # 前日比は <span class="change"> に入っている
+            change_tag = soup.find("span", class_="change")
+            if change_tag:
+                change = float(change_tag.text.replace("%", "").replace(",", ""))
+            else:
+                change = 0.0
+
+            return price, change
+    except Exception:
+        pass
+
+    # -----------------------------
+    # ③ MarketWatch（HTML パース）
+    # -----------------------------
+    try:
+        url = "https://www.marketwatch.com/investing/future/vx00"
+        html = requests.get(url, timeout=5).text
+        soup = BeautifulSoup(html, "html.parser")
+
+        price_tag = soup.find("bg-quote", class_="value")
+        change_tag = soup.find("bg-quote", class_="change--percent--q")
+
+        if price_tag:
+            price = float(price_tag.text.replace(",", ""))
+            if change_tag:
+                change = float(change_tag.text.replace("%", "").replace(",", ""))
+            else:
+                change = 0.0
+
+            return price, change
+    except Exception:
+        pass
+
+    # -----------------------------
+    # ④ キャッシュ復旧
+    # -----------------------------
+    try:
+        with open("vixf_cache.json", "r") as f:
+            cache = json.load(f)
+            return cache["price"], cache["change"]
+    except:
+        return 0.0, 0.0
+
 def get_market_data():
     # 初期化
     data_date = "不明"
@@ -101,15 +188,16 @@ def get_market_data():
     except Exception:
         vix_price, vix_change = 0.0, 0.0
 
-    # VIX先物
+    # VIX先物（Yahoo → CME → MarketWatch の三重化）
+    vxf_price, vxf_change = fetch_vix_futures()
+
+    # 成功したらキャッシュ更新
     try:
-        vxf = get_json("https://query1.finance.yahoo.com/v8/finance/chart/VX=F")
-        meta = vxf["chart"]["result"][0]["meta"]
-        vxf_price = meta["regularMarketPrice"]
-        vxf_prev = meta["chartPreviousClose"]
-        vxf_change = (vxf_price - vxf_prev) / vxf_prev * 100
-    except Exception:
-        vxf_price, vxf_change = 0.0, 0.0
+        with open("vixf_cache.json", "w") as f:
+            json.dump({"price": vxf_price, "change": vxf_change}, f)
+    except:
+        pass
+
 
     # NASDAQ先物
     try:
