@@ -59,7 +59,6 @@ def get_data_date(meta):
 # 市場データ取得（イールドカーブ修正済）
 # ============================
 
-
 def fetch_vix_futures():
     # -----------------------------
     # ① Yahoo Finance（query1 → query2）
@@ -97,12 +96,10 @@ def fetch_vix_futures():
         html = requests.get(url, timeout=5).text
         soup = BeautifulSoup(html, "html.parser")
 
-        # CME の価格は <span class="last"> に入っている
         price_tag = soup.find("span", class_="last")
         if price_tag:
             price = float(price_tag.text.replace(",", ""))
 
-            # 前日比は <span class="change"> に入っている
             change_tag = soup.find("span", class_="change")
             if change_tag:
                 change = float(change_tag.text.replace("%", "").replace(",", ""))
@@ -144,6 +141,7 @@ def fetch_vix_futures():
             return cache["price"], cache["change"]
     except:
         return 0.0, 0.0
+
 
 def get_market_data():
     # 初期化
@@ -197,7 +195,6 @@ def get_market_data():
             json.dump({"price": vxf_price, "change": vxf_change}, f)
     except:
         pass
-
 
     # NASDAQ先物
     try:
@@ -259,7 +256,7 @@ def get_market_data():
     except Exception:
         btc_price, btc_change = 0.0, 0.0
 
-    # イールドカーブ（10年 - 2年） ← 修正済
+    # イールドカーブ（10年 - 2年）
     if us2y_price != 0 and us10y_price != 0:
         yield_spread = us10y_price - us2y_price
     else:
