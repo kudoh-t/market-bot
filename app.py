@@ -1,7 +1,7 @@
 import requests
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # ============================
 # LINE Messaging API
@@ -43,10 +43,25 @@ def get_json(url: str):
 
 
 # ============================
-# 市場データ取得（拡張版）
+# データ日付（YahooのUNIXタイム → 日本時間）
+# ============================
+
+def get_data_date(meta):
+    ts = meta.get("regularMarketTime")
+    if ts:
+        dt = datetime.fromtimestamp(ts, timezone.utc) + timedelta(hours=9)
+        return dt.strftime("%Y.%m.%d")
+    return "不明"
+
+
+# ============================
+# 市場データ取得（イールドカーブ修正済）
 # ============================
 
 def get_market_data():
+    # 初期化
+    data_date = "不明"
+
     # 金（Gold）
     try:
         gold = get_json("https://query1.finance.yahoo.com/v8/finance/chart/GC=F")
@@ -54,6 +69,7 @@ def get_market_data():
         gold_price = meta["regularMarketPrice"]
         gold_prev = meta["chartPreviousClose"]
         gold_change = (gold_price - gold_prev) / gold_prev * 100
+        data_date = get_data_date(meta)
     except Exception:
         gold_price, gold_change = 0.0, 0.0
 
@@ -81,10 +97,11 @@ def get_market_data():
         vix_price = meta["regularMarketPrice"]
         vix_prev = meta["chartPreviousClose"]
         vix_change = (vix_price - vix_prev) / vix_prev * 100
+        data_date = get_data_date(meta)
     except Exception:
         vix_price, vix_change = 0.0, 0.0
 
-    # VIX先物（VX=F）
+    # VIX先物
     try:
         vxf = get_json("https://query1.finance.yahoo.com/v8/finance/chart/VX=F")
         meta = vxf["chart"]["result"][0]["meta"]
@@ -134,7 +151,7 @@ def get_market_data():
     except Exception:
         us10y_price, us10y_change = 0.0, 0.0
 
-    # 米2年金利（^IRXを簡易利用）
+    # 米2年金利
     try:
         us2y = get_json("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX")
         meta = us2y["chart"]["result"][0]["meta"]
@@ -154,9 +171,9 @@ def get_market_data():
     except Exception:
         btc_price, btc_change = 0.0, 0.0
 
-    # イールドカーブ（2年 - 10年）
+    # イールドカーブ（10年 - 2年） ← 修正済
     if us2y_price != 0 and us10y_price != 0:
-        yield_spread = us2y_price - us10y_price
+        yield_spread = us10y_price - us2y_price
     else:
         yield_spread = 0.0
 
@@ -183,11 +200,12 @@ def get_market_data():
         "yield_spread": yield_spread,
         "btc_price": btc_price,
         "btc_change": btc_change,
+        "data_date": data_date,
     }
 
 
 # ============================
-# モード判定（戦時 / 平時 / 移行期）
+# モード判定
 # ============================
 
 def detect_mode(vix_price: float) -> str:
@@ -207,9 +225,71 @@ def detect_mode(vix_price: float) -> str:
 
 def scale_score(score, max_score):
     scaled = int(score / max_score * 100)
-    return min(max(scaled, 0), 100)  # 0〜100にクリップ
+    return min(max(scaled, 0), 100)
 
 
+# ============================
+# 戦時モードスコア（イールドカーブ修正済）
+# ============================
+
+def calc_war_score(d):
+    score = 0
+
+    # --- VIX先物 ---
+    if d["vxf_price"] != 0:
+        if d["vxf_change"] <= -5:
+            score += 30
+        elif -5 < d["vxf_change"] < 0:
+            score += 15
+
+    # --- VIX現物 ---
+    if d["vix_price"] != 0:
+        if d["vix_change"] <= -5:
+            score += 20
+        elif -5 < d["vix_change"] < 0:
+            score += 10
+
+    # --- 米2年金利 ---
+    if d["us2y_price"] != 0:
+        if d["us2y_change"] <= -2:
+            score += 20
+        elif -2 < d["us2y_change"] < 0:
+            score += 10
+
+    # --- 米10年金利 ---
+    if d["us10y_price"] != 0:
+        if d["us10y_change"] <= -2:
+            score += 10
+        elif -2 < d["us10y_change"] < 0:
+            score += 5
+
+    # --- イールドカーブ（10年−2年） ---
+    if d["yield_spread"] < 0:  # 逆イールド → リスクオフ → 反転強
+        score += 15
+    else:
+        score += 5
+
+    # --- BTC ---
+    if d["btc_price"] != 0:
+        if d["btc_change"] >= 3:
+            score += 15
+        elif 1 <= d["btc_change"] < 3:
+            score += 8
+
+    # --- 補助指標 ---
+    if d["gold_change"] < 0:
+        score += 5
+    if d["wti_change"] < 0:
+        score += 5
+    if d["nq_change"] > 0:
+        score += 5
+    if d["nk_change"] > 0:
+        score += 5
+
+    return score
+
+
+WAR_MAX_SCORE = 130
 # ============================
 # ゾーン分類（戦時・平時で別ロジック）
 # ============================
@@ -239,78 +319,13 @@ def classify_zone(scaled_score, mode):
 
 
 # ============================
-# 戦時モードスコア（反転検知・拡張版）
-# ============================
-
-def calc_war_score(d):
-    score = 0
-
-    # --- VIX先物（未来の恐怖：重め） ---
-    if d["vxf_price"] != 0:
-        if d["vxf_change"] <= -5:
-            score += 30
-        elif -5 < d["vxf_change"] < 0:
-            score += 15
-
-    # --- VIX現物 ---
-    if d["vix_price"] != 0:
-        if d["vix_change"] <= -5:
-            score += 20
-        elif -5 < d["vix_change"] < 0:
-            score += 10
-
-    # --- 米2年金利（利下げ期待：戦時では重め） ---
-    if d["us2y_price"] != 0:
-        if d["us2y_change"] <= -2:
-            score += 20
-        elif -2 < d["us2y_change"] < 0:
-            score += 10
-
-    # --- 米10年金利 ---
-    if d["us10y_price"] != 0:
-        if d["us10y_change"] <= -2:
-            score += 10
-        elif -2 < d["us10y_change"] < 0:
-            score += 5
-
-    # --- イールドカーブ（2年−10年） ---
-    if d["yield_spread"] < 0:  # 順イールド方向
-        score += 15
-    else:
-        score += 5
-
-    # --- BTC（戦時のみ） ---
-    if d["btc_price"] != 0:
-        if d["btc_change"] >= 3:
-            score += 15
-        elif 1 <= d["btc_change"] < 3:
-            score += 8
-
-    # --- 補助指標（軽め：金・原油・株価） ---
-    if d["gold_change"] < 0:
-        score += 5
-    if d["wti_change"] < 0:
-        score += 5
-    if d["nq_change"] > 0:
-        score += 5
-    if d["nk_change"] > 0:
-        score += 5
-
-    return score
-
-
-# 戦時モードの理論最大スコア
-WAR_MAX_SCORE = 130  # 上の加点ロジックから算出
-
-
-# ============================
-# 平時モードスコア（トレンド評価）
+# 平時モードスコア
 # ============================
 
 def calc_peace_score(d):
     score = 0
 
-    # --- 金利（米2年・10年） ---
+    # --- 金利 ---
     if d["us2y_change"] < 0:
         score += 20
     if d["us10y_change"] < 0:
@@ -330,35 +345,37 @@ def calc_peace_score(d):
     elif d["usd_jpy"] >= 150:
         score += 8
 
-    # --- コモディティ（平時のリスクオン判定） ---
-    # 金が下落 or 小動き → リスクオン寄り
+    # --- コモディティ ---
     if d["gold_change"] <= 0:
         score += 5
-    # 原油上昇 → 景気期待
     if d["wti_change"] > 0:
         score += 5
 
     return score
 
 
-PEACE_MAX_SCORE = 115  # 上の加点ロジックから算出
+PEACE_MAX_SCORE = 115
 
 
 # ============================
-# 戦時モードメッセージ
+# 戦時モードメッセージ（データ日付対応）
 # ============================
 
 def build_war_message(d, score, scaled_score, zone):
     today = datetime.now().strftime("%Y.%m.%d")
+    data_date = d["data_date"]
+
     msg = []
     msg.append(f"【{today} 戦時モード：相場反転スコア（100点版）】")
+    msg.append(f"データ日：{data_date}\n")
+
     msg.append(f"VIX現物: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）")
     msg.append(f"VIX先物: {d['vxf_price']:.2f}（{d['vxf_change']:.2f}%）\n")
 
     msg.append("▼ 金利・イールドカーブ")
     msg.append(f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）")
     msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）")
-    msg.append(f"・イールドカーブ(2Y-10Y): {d['yield_spread']:.2f}\n")
+    msg.append(f"・イールドカーブ(10Y-2Y): {d['yield_spread']:.2f}\n")
 
     msg.append("▼ 株価指数")
     msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
@@ -384,9 +401,11 @@ def build_war_message(d, score, scaled_score, zone):
 
 def build_peace_message(d, score, scaled_score, zone):
     today = datetime.now().strftime("%Y.%m.%d")
+    data_date = d["data_date"]
+
     msg = []
     msg.append(f"【{today} 平時モード：トレンドスコア（100点版）】")
-    msg.append(f"VIX水準: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n")
+    msg.append(f"データ日：{data_date}\n")
 
     msg.append("▼ 金利")
     msg.append(f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）")
@@ -408,20 +427,22 @@ def build_peace_message(d, score, scaled_score, zone):
 
 
 # ============================
-# 移行期メッセージ（データ＋両スコア）
+# 移行期メッセージ
 # ============================
 
 def build_transition_message(d, war_score, war_scaled, war_zone,
                              peace_score, peace_scaled, peace_zone):
     today = datetime.now().strftime("%Y.%m.%d")
+    data_date = d["data_date"]
+
     msg = []
     msg.append(f"【{today} 移行期モード：様子見】")
-    msg.append(f"VIX水準: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）\n")
+    msg.append(f"データ日：{data_date}\n")
 
     msg.append("▼ 金利・イールドカーブ")
     msg.append(f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）")
     msg.append(f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）")
-    msg.append(f"・イールドカーブ(2Y-10Y): {d['yield_spread']:.2f}\n")
+    msg.append(f"・イールドカーブ(10Y-2Y): {d['yield_spread']:.2f}\n")
 
     msg.append("▼ 株価指数")
     msg.append(f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）")
@@ -470,7 +491,6 @@ def main():
         msg = build_peace_message(d, raw_score, scaled, zone)
 
     else:
-        # 移行期：両方のスコアを計算して参考表示
         war_raw = calc_war_score(d)
         war_scaled = scale_score(war_raw, WAR_MAX_SCORE)
         war_zone = classify_zone(war_scaled, "war")
