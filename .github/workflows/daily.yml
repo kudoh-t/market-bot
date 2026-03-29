@@ -19,7 +19,18 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install requests beautifulsoup4
+
+      # --- ここに追加します ---
+      - name: Cache Market Data
+        uses: actions/cache@v3
+        with:
+          path: market_cache.pkl
+          # 毎回新しいキーを生成しつつ、前回のデータを復元できるようにします
+          key: market-data-cache-${{ github.run_id }}
+          restore-keys: |
+            market-data-cache-
+      # -----------------------
 
       - name: Run script
         env:
