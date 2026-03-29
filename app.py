@@ -1,6 +1,8 @@
 import requests
 import json
 import os
+import pandas as pd
+import io
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
@@ -9,7 +11,6 @@ from bs4 import BeautifulSoup
 # ============================
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
-FMP_API_KEY = os.getenv("FMP_API_KEY")
 CACHE_FILE = "vixf_cache.json"
 
 # ============================
@@ -41,14 +42,15 @@ def send_line(text: str):
 # 共通ヘルパー
 # ============================
 def get_json(url: str):
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
     try:
-        return requests.get(url, headers=headers, timeout=15).json()
+        resp = requests.get(url, headers=headers, timeout=15)
+        return resp.json()
     except:
         return {}
 
 def get_soup(url: str):
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         return BeautifulSoup(resp.text, "html.parser")
@@ -63,10 +65,28 @@ def get_data_date(meta):
     return "不明"
 
 # ============================
-# VIX先物：三重化取得
+# VIX先物：四重化取得（CBOE直取得を追加）
 # ============================
 def fetch_vix_futures():
-    # ① Yahoo
+    # --- 1. CBOE公式サイトからCSVを直接取得（一次ソース: 最も確実） ---
+    try:
+        # CBOEの最新VIXデータCSV
+        cboe_url = "https://www.cboe.com/publish/scheduled_file/ebed/vixcurrent.csv"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(cboe_url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            # CSVの3行目からデータが始まる形式が多い
+            df = pd.read_csv(io.StringIO(resp.text), skiprows=1)
+            # VIX先物の直近値を取得（CBOEのCSV構造に依存するためtry-exceptで囲む）
+            last_price = float(df.iloc[-1]['VIX Close'])
+            prev_price = float(df.iloc[-2]['VIX Close'])
+            change = (last_price - prev_price) / prev_price * 100
+            _save_cache(last_price, change)
+            return last_price, change
+    except Exception as e:
+        print(f"CBOE Direct Access Failed: {e}")
+
+    # --- 2. Yahoo Finance API (v8) ---
     try:
         url = "https://query1.finance.yahoo.com/v8/finance/chart/VX=F"
         data = get_json(url)
@@ -74,12 +94,13 @@ def fetch_vix_futures():
         p = float(res["meta"]["regularMarketPrice"])
         prev = float(res["meta"]["chartPreviousClose"])
         c = (p - prev) / prev * 100
-        _save_cache(p, c)
-        return p, c
+        if p > 0:
+            _save_cache(p, c)
+            return p, c
     except:
         pass
 
-    # ② MarketWatch
+    # --- 3. MarketWatch スクレイピング ---
     try:
         url = "https://www.marketwatch.com/investing/future/vx00"
         soup = get_soup(url)
@@ -87,13 +108,15 @@ def fetch_vix_futures():
         c_el = soup.select_one("bg-quote[field='percentChange']") or soup.select_one(".change--percent--q .value")
         if p_el and c_el:
             p = float(p_el.text.replace(",", "").strip())
-            c = float(c_el.text.replace("%", "").replace("+", "").strip())
-            _save_cache(p, c)
-            return p, c
+            c_text = c_el.text.replace("%", "").replace("+", "").strip()
+            c = float(c_text)
+            if p > 0:
+                _save_cache(p, c)
+                return p, c
     except:
         pass
 
-    # ③ キャッシュ
+    # --- 4. 最終手段：キャッシュ ---
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r") as f:
@@ -105,9 +128,10 @@ def fetch_vix_futures():
     return 0.0, 0.0
 
 def _save_cache(p, c):
+    if p <= 0: return # 異常値は保存しない
     try:
         with open(CACHE_FILE, "w") as f:
-            json.dump({"price": p, "change": c}, f)
+            json.dump({"price": p, "change": c, "updated_at": datetime.now().isoformat()}, f)
     except:
         pass
 
@@ -116,6 +140,7 @@ def _save_cache(p, c):
 # ============================
 def get_market_data():
     d = {"data_date": "不明"}
+    # 各種シンボルの取得
     targets = {
         "gold": "GC=F", "wti": "CL=F", "vix": "%5EVIX",
         "nq": "NQ=F", "nk": "NK=F", "es": "ES=F",
@@ -126,21 +151,25 @@ def get_market_data():
         try:
             raw = get_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}")
             meta = raw["chart"]["result"][0]["meta"]
-            p, prev = meta["regularMarketPrice"], meta["chartPreviousClose"]
-            d[f"{key}_price"], d[f"{key}_change"] = p, (p - prev) / prev * 100
-            if key == "vix":
-                d["data_date"] = get_data_date(meta)
+            p = meta.get("regularMarketPrice")
+            prev = meta.get("chartPreviousClose")
+            if p is not None and prev is not None:
+                d[f"{key}_price"], d[f"{key}_change"] = p, (p - prev) / prev * 100
+                if key == "vix":
+                    d["data_date"] = get_data_date(meta)
+            else:
+                d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
         except:
             d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
 
-    # USDJPY
+    # 為替 (USDJPY) - Frankfurter API が落ちている場合も考慮
     try:
         fx = get_json("https://api.frankfurter.app/latest?from=USD&to=JPY")
-        d["usd_jpy"] = fx["rates"]["JPY"]
+        d["usd_jpy"] = fx.get("rates", {}).get("JPY", 0.0)
     except:
         d["usd_jpy"] = 0.0
 
-    # VIX先物
+    # VIX先物の取得（多重化関数呼び出し）
     d["vxf_price"], d["vxf_change"] = fetch_vix_futures()
 
     # イールドカーブ
@@ -149,123 +178,66 @@ def get_market_data():
     return d
 
 # ============================
-# スコアロジック（完全版）
+# スコアロジック（変更なし）
 # ============================
 def calc_war_score(d):
     s = 0
-
-    # VIX先物の傾き
-    if d["vxf_change"] <= -7:
-        s += 40
-    elif d["vxf_change"] < 0:
-        s += 20
-
-    # VIX現物の急落
-    if d["vix_change"] <= -5:
-        s += 25
-
-    # 金利
-    if d["us2y_change"] < 0:
-        s += 20
-
-    # イールドカーブ
-    if d["yield_spread"] < 0:
-        s += 20
-
-    # BTC
-    if d["btc_change"] >= 3:
-        s += 15
-
-    # 株価指数
-    if d["nq_change"] > 0:
-        s += 20
-    if d["es_change"] > 0:
-        s += 15
-
+    if d["vxf_change"] <= -7: s += 40
+    elif d["vxf_change"] < 0: s += 20
+    if d["vix_change"] <= -5: s += 25
+    if d["us2y_change"] < 0: s += 20
+    if d["yield_spread"] < 0: s += 20
+    if d["btc_change"] >= 3: s += 15
+    if d["nq_change"] > 0: s += 20
+    if d["es_change"] > 0: s += 15
     return s
 
 def calc_peace_score(d):
     s = 0
-
-    # 株価指数
-    if d["nq_change"] > 0:
-        s += 35
-    if d["es_change"] > 0:
-        s += 35
-
-    # 金利
-    if d["us10y_change"] < 0:
-        s += 20
-
-    # USDJPY
-    if d["usd_jpy"] >= 150:
-        s += 20
-
-    # BTC
-    if d["btc_change"] > 0:
-        s += 15
-
+    if d["nq_change"] > 0: s += 35
+    if d["es_change"] > 0: s += 35
+    if d["us10y_change"] < 0: s += 20
+    if d["usd_jpy"] >= 150: s += 20
+    if d["btc_change"] > 0: s += 15
     return s
 
 def calc_transition_score(d):
     s = 0
-
-    # 平時→戦時 or 戦時→平時 の境界判定
     if 15 < d["vix_price"] < 20:
-        if d["vxf_change"] < 0:
-            s += 25
-        if d["nq_change"] > 0:
-            s += 20
-        if d["us10y_change"] < 0:
-            s += 20
-        if d["btc_change"] > 0:
-            s += 15
-
+        if d["vxf_change"] < 0: s += 25
+        if d["nq_change"] > 0: s += 20
+        if d["us10y_change"] < 0: s += 20
+        if d["btc_change"] > 0: s += 15
     return s
 
-# ============================
-# ゾーン分類
-# ============================
 def classify_zone(scaled, mode):
     if mode == "war":
         if scaled >= 80: return "反転確定ゾーン"
         if scaled >= 60: return "反転の可能性大"
         if scaled >= 40: return "反転の初期兆候"
         return "有事継続"
-
     if mode == "transition":
         if scaled >= 70: return "平時移行の可能性"
         if scaled >= 50: return "移行期の兆候"
         return "方向感なし"
-
-    # peace
     if scaled >= 80: return "強い上昇トレンド"
     if scaled >= 60: return "上昇トレンド"
     return "トレンド不明瞭"
 
 # ============================
-# メッセージ構築（完全版）
+# メッセージ構築
 # ============================
 def build_message(d):
     vix_p = d["vix_price"]
-
     if vix_p >= 20:
-        mode = "戦時モード：相場反転スコア"
-        max_score = 155
+        mode, max_score, zone_mode = "戦時モード：相場反転スコア", 155, "war"
         score = calc_war_score(d)
-        zone_mode = "war"
-
     elif vix_p <= 15:
-        mode = "平時モード：トレンドスコア"
-        max_score = 135
+        mode, max_score, zone_mode = "平時モード：トレンドスコア", 135, "peace"
         score = calc_peace_score(d)
-        zone_mode = "peace"
-
     else:
-        mode = "移行期モード：様子見"
-        max_score = 140
+        mode, max_score, zone_mode = "移行期モード：様子見", 140, "transition"
         score = calc_transition_score(d)
-        zone_mode = "transition"
 
     scaled = min(max(int(score / max_score * 100), 0), 100)
     zone = classify_zone(scaled, zone_mode)
@@ -284,9 +256,6 @@ def build_message(d):
         f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）",
         f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）",
         f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）\n",
-        "▼ コモディティ",
-        f"・金(Gold): {d['gold_price']:.2f}（{d['gold_change']:.2f}%）",
-        f"・原油(WTI): {d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n",
         "▼ 暗号資産",
         f"・BTC : {d['btc_price']:.2f}（{d['btc_change']:.2f}%）\n",
         f"総合スコア：{scaled}点（{zone}）",
