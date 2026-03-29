@@ -29,6 +29,16 @@ def get_fgi_detail(val):
     elif val <= 75: return f"🚀指数({val}): 強欲。過熱感あり。追撃買いは控え、利益確定を優先的に検討すべきフェーズ。"
     else:           return f"🚨指数({val}): 極度の強欲。バブル的な動き。いつ急落が来てもおかしくない警戒最大の状態。"
 
+def get_yield_comment(spread):
+    if spread < -0.5:
+        return "⚠️強い逆イールド：景気後退への強い警戒。利上げの限界と将来の不況を市場が確信しています。"
+    elif spread < 0:
+        return "🧐逆イールド状態：異常な金利体系。景気サイクルの終盤で、相場の転換点が近づいているサインです。"
+    elif 0 <= spread < 0.2:
+        return "🔄フラット化/解消直後：逆イールド解消は「利下げ開始」の予兆。過去、暴落や急反発が起きやすい転換点です。"
+    else:
+        return "✅順イールド：正常な金利体系。長期的な景気拡大への期待が反映されています。"
+
 def get_score_comment(scaled):
     if scaled >= 80: return "💎【反転確定ゾーン】複数の反転シグナルが点灯。反発のエネルギーが極めて高く、攻めに転じる好機です。"
     if scaled >= 50: return "📈【反転の兆し】売り圧力が和らぎ、買い戻しの動きが見え始めました。打診買いを検討できる圏内です。"
@@ -40,9 +50,9 @@ def analyze_market_action(d):
     if d["vix_price"] > d["vxf_price"] + 0.5:
         actions.append("⚠️【パニック発生】現物VIXが先物より高い異常事態。パニック売りに乗らず反転を待ちましょう。")
     if d["us10y_change"] > 1.2 and d["nq_change"] < -0.8:
-        actions.append("📉【重力注意】米金利の急騰が株価を押し下げています。ハイテク株の買い増しは金利沈静化まで待機。")
+        actions.append("📉【重力注意】米金利の急騰が株価を押し下げ。ハイテク株の買い増しは金利沈静化まで待機。")
     diff = d["nk_change"] - d["nq_change"]
-    if diff > 2.0:  actions.append("🇯🇵【日本株独歩高】米株より強すぎます。追随リスクを考え、一部利確も一手。")
+    if diff > 2.0:  actions.append("🇯🇵【日本株独歩高】米株より強すぎ。追随リスクを考え、一部利確も一手。")
     elif diff < -2.0: actions.append("🏯【日本株出遅れ】米株に比べ売られすぎ。独自の売り要因がなければ拾い場か。")
     if d["btc_change"] < -4.0:
         actions.append("🕊️【先行指標赤信号】BTC急落。リスクマネー流出のサイン。今夜の米株市場に警戒を。")
@@ -55,7 +65,7 @@ def fetch_vix_spot():
     try:
         url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
-        m = r = res["chart"]["result"][0]["meta"]
+        r = res["chart"]["result"][0]["meta"]
         p, pr = r["regularMarketPrice"], r["chartPreviousClose"]
         dt = (datetime.fromtimestamp(r["regularMarketTime"], timezone.utc) + timedelta(hours=9)).strftime("%Y.%m.%d")
         return p, (p - pr) / pr * 100, dt
@@ -89,49 +99,56 @@ def get_market_data():
             m = r["chart"]["result"][0]["meta"]
             d[f"{k}_price"], d[f"{k}_change"] = m["regularMarketPrice"], (m["regularMarketPrice"] - m["chartPreviousClose"]) / m["chartPreviousClose"] * 100
         except: d[f"{k}_price"], d[f"{k}_change"] = 0.0, 0.0
-    d["yield_spread"] = d["us10y_price"] - d["us2y_price"]
+    
+    d["yield_spread"] = d["us10y_price"] - d["us2y_price"] # 修正: 10Y - 2Y
+    d["yield_text"] = get_yield_comment(d["yield_spread"])
     return d
 
 # ============================
-# メッセージ構築・実行
+# メッセージ構築
 # ============================
 def build_message(d):
     vix_p = d["vix_price"]
     mode, max_s = ("戦時モード：総合反転スコア", 155) if vix_p >= 20 else ("平時モード：トレンドスコア", 135)
     
     score = 0
-    if vix_p >= 20: # 有事スコア加算ロジック
+    if vix_p >= 20:
         if d["vxf_change"] <= -7: score += 40
         elif d["vxf_change"] < 0: score += 20
         if d["vix_change"] <= -5: score += 25
         if d["us2y_change"] < 0: score += 20
-        if d["yield_spread"] < 0: score += 20
+        if d["yield_spread"] < 0: score += 20 # 逆イールド時に加点
         if d["btc_change"] >= 3: score += 15
         if d["nq_change"] > 0: score += 20
         if d["es_change"] > 0: score += 15
 
     scaled = min(max(int(score / max_s * 100), 0), 100)
-    score_comment = get_score_comment(scaled)
     
     msg = [
         f"【{datetime.now().strftime('%Y.%m.%d')} {mode}】",
         f"📅 データ日：{d['data_date']}\n",
         f"▼ 投資家心理 (Fear & Greed Index)",
         f"{d['fgi_text']}\n",
-        f"▼ 主要指標",
+        f"▼ 主要リスク指標",
         f"VIX現物: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）",
         f"VIX先物: {d['vxf_price']:.2f}\n",
-        "▼ 商品・金利・暗号資産",
-        f"・Gold: {d['gold_price']:.1f} / 原油: {d['wti_price']:.1f}",
-        f"・米10年金利: {d['us10y_price']:.2f} / BTC: {d['btc_price']:.0f}",
-        f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）\n",
+        "▼ 金利・イールドカーブ",
+        f"・米2年金利 : {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）",
+        f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）",
+        f"・金利差(10Y-2Y): {d['yield_spread']:.3f}",
+        f"   💡{d['yield_text']}\n",
+        "▼ 商品（コモディティ）",
+        f"・ゴールド : {d['gold_price']:.1f}（{d['gold_change']:.2f}%）",
+        f"・WTI原油  : {d['wti_price']:.1f}（{d['wti_change']:.2f}%）\n",
+        "▼ 暗号資産",
+        f"・BTC : ${d['btc_price']:.0f}（{d['btc_change']:.2f}%）\n",
         "▼ 株価指数",
         f"・NASDAQ先物: {d['nq_price']:.1f}（{d['nq_change']:.2f}%）",
         f"・日経平均先物: {d['nk_price']:.1f}（{d['nk_change']:.2f}%）",
         f"・S&P500先物 : {d['es_price']:.1f}（{d['es_change']:.2f}%）\n",
         f"⚖️ スコア評価：{scaled}点 / 100",
         f"（生スコア: {score} / {max_s}）",
-        f"{score_comment}\n",
+        f"{get_score_comment(scaled)}\n",
         f"--------------------------",
         f"💡 【行動指針】\n{analyze_market_action(d)}"
     ]
