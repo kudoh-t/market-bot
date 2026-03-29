@@ -22,22 +22,34 @@ def send_line(text: str):
 # ============================
 # 判定・解説ロジック
 # ============================
+def get_vix_analysis(v_spot, v_fut, is_estimated):
+    if is_estimated:
+        return "⚠️先物データ取得不可：現物のみで診断中。先物との乖離判定をスキップします。"
+    
+    diff = v_spot - v_fut
+    if diff > 0.5:
+        return f"🚨異常乖離(逆転)：現物が先物を{diff:.2f}上回るパニック状態。歴史的に底打ちが近いサインです。"
+    elif diff < -1.0:
+        return f"✅正常乖離(順鞘)：先物の方が高い正常な状態。市場のパニックは落ち着いています。"
+    else:
+        return "😐均衡状態：現物と先物が同水準。方向感を模索中です。"
+
 def get_fgi_detail(val):
-    if val <= 25:   return f"🔥指数({val}): 極度の恐怖。歴史的には絶好の仕込み時。少額ずつ買い向かう勇気が報われやすい時期です。"
+    if val <= 25:   return f"🔥指数({val}): 極度の恐怖。総悲観ですが、歴史的には絶好の仕込み時。少額ずつ買い向かう勇気が報われやすい時期です。"
     elif val <= 45: return f"😨指数({val}): 恐怖。下落への警戒が強い状態。リバウンドを待つか、キャッシュ比率を維持して静観が吉。"
     elif val <= 55: return f"😐指数({val}): 中立。強弱感が拮抗。トレンドが明確になるまで大きな勝負は避けるべき。"
     elif val <= 75: return f"🚀指数({val}): 強欲。過熱感あり。追撃買いは控え、利益確定を優先的に検討すべきフェーズ。"
     else:           return f"🚨指数({val}): 極度の強欲。バブル的な動き。いつ急落が来てもおかしくない警戒最大の状態。"
 
-def get_yield_comment(spread):
-    if spread < -0.5:
-        return "⚠️強い逆イールド：景気後退への強い警戒。利上げの限界と将来の不況を市場が確信しています。"
-    elif spread < 0:
-        return "🧐逆イールド状態：異常な金利体系。景気サイクルの終盤で、相場の転換点が近づいているサインです。"
+def get_yield_comment(spread, us10y_change):
+    if spread < 0:
+        return "⚠️逆イールド状態：異常な金利体系。景気後退の強力な予兆であり、相場の転換点が近いサインです。"
+    elif spread >= 0.5 and us10y_change > 0:
+        return "⚡急激なスティープニング：長期金利急騰による順イールド化。景気期待より、債券売り（財政不安）への警戒が必要です。"
     elif 0 <= spread < 0.2:
-        return "🔄フラット化/解消直後：逆イールド解消は「利下げ開始」の予兆。過去、暴落や急反発が起きやすい転換点です。"
+        return "🔄フラット化/解消直後：利下げ期待による解消なら反転の兆し。金利上昇による解消なら、株価には強い重力となります。"
     else:
-        return "✅順イールド：正常な金利体系。長期的な景気拡大への期待が反映されています。"
+        return "✅順イールド：金利体系は正常。ただし金利の『絶対値』と『上昇速度』に注意。"
 
 def get_score_comment(scaled):
     if scaled >= 80: return "💎【反転確定ゾーン】複数の反転シグナルが点灯。反発のエネルギーが極めて高く、攻めに転じる好機です。"
@@ -47,10 +59,10 @@ def get_score_comment(scaled):
 
 def analyze_market_action(d):
     actions = []
-    if d["vix_price"] > d["vxf_price"] + 0.5:
-        actions.append("⚠️【パニック発生】現物VIXが先物より高い異常事態。パニック売りに乗らず反転を待ちましょう。")
+    if d["vix_price"] > d["vxf_price"] + 0.5 and not d["vxf_is_estimated"]:
+        actions.append("⚠️【パニック/VIX逆転】現物VIXが先物を上回る異常事態。パニック売りに乗らず反転を待ちましょう。")
     if d["us10y_change"] > 1.2 and d["nq_change"] < -0.8:
-        actions.append("📉【重力注意】米金利の急騰が株価を押し下げ。ハイテク株の買い増しは金利沈静化まで待機。")
+        actions.append("📉【金利の重力】長期金利の急騰が株価を押し下げ。ハイテク株の買い増しは金利沈静化まで待機。")
     diff = d["nk_change"] - d["nq_change"]
     if diff > 2.0:  actions.append("🇯🇵【日本株独歩高】米株より強すぎ。追随リスクを考え、一部利確も一手。")
     elif diff < -2.0: actions.append("🏯【日本株出遅れ】米株に比べ売られすぎ。独自の売り要因がなければ拾い場か。")
@@ -75,13 +87,13 @@ def fetch_vix_futures(vix_spot):
     try:
         res = requests.get("https://www.investing.com/indices/us-spx-vix-futures", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         p = float(BeautifulSoup(res.text, "html.parser").select_one('[data-test="instrument-price-last"]').text.replace(",", ""))
-        return p, 0.0
-    except: return vix_spot, 0.0
+        return p, False
+    except: return vix_spot, True
 
 def get_market_data():
     d = {}
     d["vix_price"], d["vix_change"], d["data_date"] = fetch_vix_spot()
-    d["vxf_price"], d["vxf_change"] = fetch_vix_futures(d["vix_price"])
+    d["vxf_price"], d["vxf_is_estimated"] = fetch_vix_futures(d["vix_price"])
     try:
         f_res = requests.get("https://production.dataviz.cnn.io/index/feargreed/static/feargreed", headers={"User-Agent":"Mozilla/5.0"}, timeout=10).json()
         d["fgi_score"] = int(f_res['fgi']['now']['value'])
@@ -100,8 +112,8 @@ def get_market_data():
             d[f"{k}_price"], d[f"{k}_change"] = m["regularMarketPrice"], (m["regularMarketPrice"] - m["chartPreviousClose"]) / m["chartPreviousClose"] * 100
         except: d[f"{k}_price"], d[f"{k}_change"] = 0.0, 0.0
     
-    d["yield_spread"] = d["us10y_price"] - d["us2y_price"] # 修正: 10Y - 2Y
-    d["yield_text"] = get_yield_comment(d["yield_spread"])
+    d["yield_spread"] = d["us10y_price"] - d["us2y_price"]
+    d["yield_text"] = get_yield_comment(d["yield_spread"], d["us10y_change"])
     return d
 
 # ============================
@@ -113,14 +125,13 @@ def build_message(d):
     
     score = 0
     if vix_p >= 20:
-        if d["vxf_change"] <= -7: score += 40
-        elif d["vxf_change"] < 0: score += 20
+        if not d["vxf_is_estimated"] and (d["vix_price"] > d["vxf_price"]): score += 30
         if d["vix_change"] <= -5: score += 25
         if d["us2y_change"] < 0: score += 20
-        if d["yield_spread"] < 0: score += 20 # 逆イールド時に加点
+        if d["yield_spread"] < 0: score += 20
         if d["btc_change"] >= 3: score += 15
-        if d["nq_change"] > 0: score += 20
-        if d["es_change"] > 0: score += 15
+        if d["nq_change"] > 0: score += 25
+        if d["es_change"] > 0: score += 20
 
     scaled = min(max(int(score / max_s * 100), 0), 100)
     
@@ -131,12 +142,13 @@ def build_message(d):
         f"{d['fgi_text']}\n",
         f"▼ 主要リスク指標",
         f"VIX現物: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）",
-        f"VIX先物: {d['vxf_price']:.2f}\n",
+        f"VIX先物: {'(取得失敗・現物代用)' if d['vxf_is_estimated'] else f'{d[vxf_price]:.2f}'}",
+        f" 💡 {get_vix_analysis(d['vix_price'], d['vxf_price'], d['vxf_is_estimated'])}\n",
         "▼ 金利・イールドカーブ",
         f"・米2年金利 : {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）",
         f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）",
         f"・金利差(10Y-2Y): {d['yield_spread']:.3f}",
-        f"   💡{d['yield_text']}\n",
+        f"   💡 {d['yield_text']}\n",
         "▼ 商品（コモディティ）",
         f"・ゴールド : {d['gold_price']:.1f}（{d['gold_change']:.2f}%）",
         f"・WTI原油  : {d['wti_price']:.1f}（{d['wti_change']:.2f}%）\n",
