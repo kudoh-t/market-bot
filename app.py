@@ -49,14 +49,6 @@ def get_json(url: str):
     except:
         return {}
 
-def get_soup(url: str):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=15)
-        return BeautifulSoup(resp.text, "html.parser")
-    except:
-        return BeautifulSoup("", "html.parser")
-
 def get_data_date(meta):
     ts = meta.get("regularMarketTime")
     if ts:
@@ -65,27 +57,38 @@ def get_data_date(meta):
     return "不明"
 
 # ============================
-# VIX先物：四重化取得（CBOE直取得を追加）
+# VIX先物：四重化取得（CNBC/CNBC-APIを最優先）
 # ============================
 def fetch_vix_futures():
-    # --- 1. CBOE JSON API (CSVより構造が安定している) ---
+    # --- 1. CNBC API (非常に安定しており、先物1限月を直接取れる) ---
     try:
-        # CBOEのクォートAPIを直接叩く
-        url = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_vix.json"
-        headers = {"User-Agent": "Mozilla/5.0"}
+        # @VX.1 はVIX先物の第1限月を指す汎用シンボル
+        url = "https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=@VX.1&output=json"
         data = get_json(url)
-        # 先物（VX）の直近限月を探すロジック
+        quote = data["QuickQuoteResult"]["QuickQuote"]
+        p = float(quote["last"])
+        c = float(quote["change_pct"])
+        if p > 0:
+            _save_cache(p, c)
+            return p, c
+    except:
+        print("CNBC API Failed")
+
+    # --- 2. CBOE公式 (JSONエンドポイント) ---
+    try:
+        url = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_vix.json"
+        data = get_json(url)
         if data and "data" in data:
-            # 簡略化のため、現物VIXに近い値を持つ先物を推測（または特定のシンボル検索）
-            # 実際にはCBOEのこのURLは現物メインのため、Yahooの別ルートを優先
-            pass
+            # ここは現物に近いが、先物データが取れない時の代替として
+            p = float(data["data"]["last_float"])
+            c = float(data["data"]["change_percentage_float"])
+            if p > 0:
+                return p, c
     except:
         pass
 
-    # --- 2. Yahoo Finance (別のクエリ形式) ---
+    # --- 3. Yahoo Finance (v10 API) ---
     try:
-        # VX=F がダメな場合、直近限月の具体的なシンボル（例: VXJ26 ※Jは4月）を試す
-        # ここでは汎用的な VX=F の別エンドポイント
         url = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/VX=F?modules=price"
         data = get_json(url)
         price_data = data["quoteSummary"]["result"][0]["price"]
@@ -97,24 +100,7 @@ def fetch_vix_futures():
     except:
         pass
 
-    # --- 3. Investing.com 系のミラーサイト (Investing.com本体はブロックが強いため) ---
-    try:
-        # CNBCのデータソースを利用
-        url = "https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=@VX.1"
-        resp = requests.get(url, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml") # XML形式
-        p = float(soup.find("last").text)
-        c = float(soup.find("change_pct").text)
-        if p > 0:
-            _save_cache(p, c)
-            return p, c
-    except:
-        pass
-
-    # --- 4. 既存のMarketWatch (バックアップ) ---
-    # (以前のコードのロジックを継続)
-
-    # --- 5. 最終手段：キャッシュ ---
+    # --- 4. キャッシュ ---
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r") as f:
@@ -126,10 +112,10 @@ def fetch_vix_futures():
     return 0.0, 0.0
 
 def _save_cache(p, c):
-    if p <= 0: return # 異常値は保存しない
+    if p <= 0: return
     try:
         with open(CACHE_FILE, "w") as f:
-            json.dump({"price": p, "change": c, "updated_at": datetime.now().isoformat()}, f)
+            json.dump({"price": p, "change": c}, f)
     except:
         pass
 
@@ -138,7 +124,6 @@ def _save_cache(p, c):
 # ============================
 def get_market_data():
     d = {"data_date": "不明"}
-    # 各種シンボルの取得
     targets = {
         "gold": "GC=F", "wti": "CL=F", "vix": "%5EVIX",
         "nq": "NQ=F", "nk": "NK=F", "es": "ES=F",
@@ -160,26 +145,24 @@ def get_market_data():
         except:
             d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
 
-    # 為替 (USDJPY) - Frankfurter API が落ちている場合も考慮
     try:
         fx = get_json("https://api.frankfurter.app/latest?from=USD&to=JPY")
         d["usd_jpy"] = fx.get("rates", {}).get("JPY", 0.0)
     except:
         d["usd_jpy"] = 0.0
 
-    # VIX先物の取得（多重化関数呼び出し）
+    # VIX先物の取得実行
     d["vxf_price"], d["vxf_change"] = fetch_vix_futures()
-
-    # イールドカーブ
     d["yield_spread"] = d["us10y_price"] - d["us2y_price"] if d["us2y_price"] != 0 else 0.0
 
     return d
 
 # ============================
-# スコアロジック（変更なし）
+# スコアロジック
 # ============================
 def calc_war_score(d):
     s = 0
+    # 先物の下げ（＝市場の落ち着き兆候）を検知
     if d["vxf_change"] <= -7: s += 40
     elif d["vxf_change"] < 0: s += 20
     if d["vix_change"] <= -5: s += 25
