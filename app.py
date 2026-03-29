@@ -51,16 +51,15 @@ def get_fgi_detail(now_val, prev_val):
     if now_val is None:
         return "⚠️Fear & Greed Index：データ取得失敗（CNN APIエラー）"
 
-    change = None
-    if prev_val is not None:
-        change = now_val - prev_val
-
-    if change is None:
+    # 前日比
+    if prev_val is None:
         change_str = "前日比：取得失敗"
     else:
-        sign = "+" if change > 0 else ""
-        change_str = f"前日比：{sign}{change:.0f}pt"
+        diff = now_val - prev_val
+        sign = "+" if diff > 0 else ""
+        change_str = f"前日比：{sign}{diff}pt"
 
+    # コメント
     if now_val <= 25:
         base = f"🧊指数({now_val}): 極度の恐怖。歴史的には仕込み場になりやすい水準。"
     elif now_val <= 45:
@@ -148,10 +147,6 @@ def fetch_vix_spot():
 
 
 def fetch_vix_futures():
-    """
-    Investing.com から VIX先物の現在値と前日比％を取得。
-    取得失敗時は (None, None, True) を返す。
-    """
     try:
         url = "https://www.investing.com/indices/us-spx-vix-futures"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
@@ -163,13 +158,9 @@ def fetch_vix_futures():
         if price_el is None or change_pct_el is None:
             return None, None, True
 
-        price_text = price_el.text.replace(",", "").strip()
-        price = float(price_text)
-
-        # 例: "+1.23%" / "-0.56%" / "0.00%"
-        change_pct_text = change_pct_el.text.strip()
-        change_pct_text = change_pct_text.replace("%", "").replace("+", "").strip()
-        change_pct = float(change_pct_text)
+        price = float(price_el.text.replace(",", "").strip())
+        pct = change_pct_el.text.replace("%", "").replace("+", "").strip()
+        change_pct = float(pct)
 
         return price, change_pct, False
     except:
@@ -177,20 +168,17 @@ def fetch_vix_futures():
 
 
 def fetch_fgi():
-    """
-    Fear & Greed Index の現在値と前日値を取得。
-    取得失敗時は (None, None)。
-    """
     try:
         res = requests.get(
             "https://production.dataviz.cnn.io/index/feargreed/static/feargreed",
             headers={"User-Agent": "Mozilla/5.0"}, timeout=10
         ).json()
+
         now_val = int(res["fgi"]["now"]["value"])
         prev_val = None
-        # previous / previous_close 的な値があれば使う
         if "previous" in res["fgi"] and "value" in res["fgi"]["previous"]:
             prev_val = int(res["fgi"]["previous"]["value"])
+
         return now_val, prev_val
     except:
         return None, None
@@ -210,7 +198,7 @@ def get_market_data():
     fgi_now, fgi_prev = fetch_fgi()
     d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
-    # --- その他マーケットデータ（Yahoo） ---
+    # --- その他マーケットデータ ---
     targets = {
         "gold": "GC=F",
         "wti": "CL=F",
@@ -238,7 +226,7 @@ def get_market_data():
 
 
 # ============================
-# 表示用ユーティリティ
+# 表示用フォーマッタ
 # ============================
 def fmt_price_change(price, change):
     if price is None:
@@ -250,7 +238,6 @@ def fmt_price_change(price, change):
 
 
 def fmt_price_change_int(price, change):
-    # BTCなど整数表示用
     if price is None:
         return "取得失敗（変化率：取得失敗）"
     if change is None:
@@ -266,6 +253,12 @@ def fmt_price_change_one_decimal(price, change):
         return f"{price:.1f}（変化率：取得失敗）"
     sign = "+" if change > 0 else ""
     return f"{price:.1f}（{sign}{change:.2f}%）"
+
+
+def fmt_spread(v):
+    if v is None:
+        return "取得失敗"
+    return f"{v:.3f}"
 
 
 # ============================
@@ -323,7 +316,7 @@ def build_message(d):
         "▼ 金利・イールドカーブ",
         f"・米2年金利 : {fmt_price_change(d['us2y_price'], d['us2y_change'])}",
         f"・米10年金利: {fmt_price_change(d['us10y_price'], d['us10y_change'])}",
-        f"・金利差(10Y-2Y): {d['yield_spread']:.3f if d['yield_spread'] is not None else '取得失敗'}",
+        f"・金利差(10Y-2Y): {fmt_spread(d['yield_spread'])}",
         f"   💡 {d['yield_text']}\n",
 
         "▼ 商品（コモディティ）",
