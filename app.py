@@ -402,7 +402,7 @@ def build_message(d):
 
     return "\n".join(msg)
 
-
+#
 def main():
     data = get_market_data()
     send_line(build_message(data))
