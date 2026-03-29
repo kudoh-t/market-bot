@@ -49,77 +49,65 @@ def get_json(url: str):
     except:
         return {}
 
-def get_data_date(meta):
-    ts = meta.get("regularMarketTime")
-    if ts:
-        dt = datetime.fromtimestamp(ts, timezone.utc) + timedelta(hours=9)
-        return dt.strftime("%Y.%m.%d")
-    return "不明"
+# ============================
+# NEW: Fear & Greed Index 取得
+# ============================
+def fetch_fear_and_greed():
+    try:
+        # CNNのAPIエンドポイント（ブラウザのふりをして取得）
+        url = "https://production.dataviz.cnn.io/index/feargreed/static/historical"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=10)
+        data = resp.json()
+        
+        now_val = int(data['fear_and_greed']['score'])
+        rating = data['fear_and_greed']['rating'].upper()
+        
+        # 日本語訳
+        translations = {
+            "EXTREME FEAR": "極度の恐怖",
+            "FEAR": "恐怖",
+            "NEUTRAL": "中立",
+            "GREED": "強欲",
+            "EXTREME GREED": "極度の強欲"
+        }
+        jp_rating = translations.get(rating, rating)
+        return now_val, jp_rating
+    except:
+        return 0, "取得失敗"
 
 # ============================
-# VIX先物：最強の多重化取得
+# VIX先物：多重化取得
 # ============================
 def fetch_vix_futures(vix_spot_price=0.0):
-    # --- 1. Investing.com (ブラウザを装って最新タグから取得) ---
+    # --- 1. Investing.com ---
     try:
         url = "https://www.investing.com/indices/us-spx-vix-futures"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9"
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         resp = requests.get(url, headers=headers, timeout=12)
         soup = BeautifulSoup(resp.text, "html.parser")
-        
-        # 2026年現在の最新セレクタ
         p_el = soup.select_one('[data-test="instrument-price-last"]')
         c_el = soup.select_one('[data-test="instrument-price-change-percent"]')
-        
         if p_el:
             p = float(p_el.text.replace(",", ""))
-            c_text = c_el.text.replace("%", "").replace("(", "").replace(")", "").strip()
-            c = float(c_text)
-            if p > 0:
-                _save_cache(p, c)
-                return p, c
-    except Exception as e:
-        print(f"Investing.com Failed: {e}")
+            c = float(c_el.text.replace("%", "").replace("(", "").replace(")", "").strip())
+            return p, c
+    except:
+        pass
 
-    # --- 2. CNBC API (バックアップ) ---
+    # --- 2. CNBC API ---
     try:
         url = "https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=@VX.1&output=json"
         data = get_json(url)
         quote = data["QuickQuoteResult"]["QuickQuote"]
-        p = float(quote["last"])
-        c = float(quote["change_pct"])
-        if p > 0:
-            _save_cache(p, c)
-            return p, c
-    except:
-        print("CNBC API Failed")
-
-    # --- 3. 最後の手段：現物VIXの値を代用 (0.00を絶対に避ける) ---
-    if vix_spot_price > 0:
-        print("Warning: Using VIX Spot as fallback for Futures.")
-        return vix_spot_price, 0.0
-
-    # --- 4. 最終バックアップ：キャッシュ ---
-    try:
-        if os.path.exists(CACHE_FILE):
-            with open(CACHE_FILE, "r") as f:
-                cache = json.load(f)
-                return cache["price"], cache["change"]
+        return float(quote["last"]), float(quote["change_pct"])
     except:
         pass
 
-    return 0.0, 0.0
-
-def _save_cache(p, c):
-    if p <= 0: return
-    try:
-        with open(CACHE_FILE, "w") as f:
-            json.dump({"price": p, "change": c, "updated_at": datetime.now().isoformat()}, f)
-    except:
-        pass
+    # --- 3. Fallback ---
+    return vix_spot_price, 0.0
 
 # ============================
 # 市場データ集約
@@ -132,19 +120,14 @@ def get_market_data():
         "us10y": "%5ETNX", "us2y": "%5EIRX", "btc": "BTC-USD"
     }
 
-    # Yahoo Financeから基本データを取得
     for key, symbol in targets.items():
         try:
             raw = get_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}")
             meta = raw["chart"]["result"][0]["meta"]
-            p = meta.get("regularMarketPrice")
-            prev = meta.get("chartPreviousClose")
-            if p is not None and prev is not None:
+            p, prev = meta.get("regularMarketPrice"), meta.get("chartPreviousClose")
+            if p and prev:
                 d[f"{key}_price"], d[f"{key}_change"] = p, (p - prev) / prev * 100
-                if key == "vix":
-                    d["data_date"] = get_data_date(meta)
-            else:
-                d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
+                if key == "vix": d["data_date"] = datetime.fromtimestamp(meta["regularMarketTime"], timezone.utc).plus(timedelta(hours=9)).strftime("%Y.%m.%d") if "regularMarketTime" in meta else "不明"
         except:
             d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
 
@@ -155,31 +138,24 @@ def get_market_data():
     except:
         d["usd_jpy"] = 0.0
 
-    # VIX先物の取得実行（現物VIXを予備として渡す）
+    # VIX先物 & Fear and Greed
     d["vxf_price"], d["vxf_change"] = fetch_vix_futures(vix_spot_price=d.get("vix_price", 0.0))
-
-    # イールドカーブ
+    d["fgi_score"], d["fgi_rating"] = fetch_fear_and_greed()
     d["yield_spread"] = d["us10y_price"] - d["us2y_price"] if d["us2y_price"] != 0 else 0.0
 
     return d
 
 # ============================
-# スコアロジック
+# スコアロジック (変更なし)
 # ============================
 def calc_war_score(d):
     s = 0
-    # VIX先物の変化率（下げていれば反転の兆し）
     if d["vxf_change"] <= -7: s += 40
     elif d["vxf_change"] < 0: s += 20
-    # VIX現物の急落
     if d["vix_change"] <= -5: s += 25
-    # 金利低下（リスクオフ緩和）
     if d["us2y_change"] < 0: s += 20
-    # 逆イールド解消の兆し
     if d["yield_spread"] < 0: s += 20
-    # BTCの上昇（リスクオン）
     if d["btc_change"] >= 3: s += 15
-    # 株価指数の上昇
     if d["nq_change"] > 0: s += 20
     if d["es_change"] > 0: s += 15
     return s
@@ -217,7 +193,7 @@ def classify_zone(scaled, mode):
     return "トレンド不明瞭"
 
 # ============================
-# メッセージ構築
+# メッセージ構築 (F&G Indexを追加)
 # ============================
 def build_message(d):
     vix_p = d["vix_price"]
@@ -238,6 +214,9 @@ def build_message(d):
     msg = [
         f"【{today} {mode}（100点版）】",
         f"データ日：{d['data_date']}\n",
+        f"▼ 投資家心理 (Fear & Greed Index)",
+        f"指数：{d['fgi_score']} / 100（{d['fgi_rating']}）\n",
+        f"▼ 主要指標",
         f"VIX現物: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）",
         f"VIX先物: {d['vxf_price']:.2f}（{d['vxf_change']:.2f}%）\n",
         "▼ 金利・イールドカーブ",
@@ -255,9 +234,6 @@ def build_message(d):
     ]
     return "\n".join(msg)
 
-# ============================
-# メイン
-# ============================
 def main():
     data = get_market_data()
     msg = build_message(data)
