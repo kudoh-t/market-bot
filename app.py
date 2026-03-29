@@ -1,7 +1,6 @@
 import requests
 import json
 import os
-import logging
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
@@ -11,7 +10,6 @@ from bs4 import BeautifulSoup
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
 FMP_API_KEY = os.getenv("FMP_API_KEY")
-
 CACHE_FILE = "vixf_cache.json"
 
 # ============================
@@ -40,18 +38,14 @@ def send_line(text: str):
         print(f"LINE通信エラー: {e}")
 
 # ============================
-# 共通ヘルパー関数
+# 共通ヘルパー
 # ============================
 def get_json(url: str):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     return requests.get(url, headers=headers, timeout=15).json()
 
 def get_soup(url: str):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     resp = requests.get(url, headers=headers, timeout=15)
     return BeautifulSoup(resp.text, "html.parser")
 
@@ -63,12 +57,9 @@ def get_data_date(meta):
     return "不明"
 
 # ============================
-# VIX先物：取得ロジック（三重化＋キャッシュ）
+# VIX先物：取得（三重化）
 # ============================
 def fetch_vix_futures():
-    """VIX先物を複数ソースから試行取得し、成功時にキャッシュ保存、失敗時にキャッシュ復旧を行う"""
-    
-    # 1. Yahoo Finance API (v8)
     try:
         url = "https://query1.finance.yahoo.com/v8/finance/chart/VX=F"
         data = get_json(url)
@@ -76,11 +67,10 @@ def fetch_vix_futures():
         p = float(res["meta"]["regularMarketPrice"])
         prev = float(res["meta"]["chartPreviousClose"])
         c = (p - prev) / prev * 100
-        _save_vxf_cache(p, c)
+        _save_cache(p, c)
         return p, c
     except: pass
 
-    # 2. MarketWatch HTML
     try:
         url = "https://www.marketwatch.com/investing/future/vx00"
         soup = get_soup(url)
@@ -89,86 +79,116 @@ def fetch_vix_futures():
         if p_el and c_el:
             p = float(p_el.text.replace(",", "").strip())
             c = float(c_el.text.replace("%", "").replace("+", "").strip())
-            _save_vxf_cache(p, c)
+            _save_cache(p, c)
             return p, c
     except: pass
 
-    # 3. FMP API (Option)
-    if FMP_API_KEY:
-        try:
-            url = f"https://financialmodelingprep.com/api/v3/quote/VX=F?apikey={FMP_API_KEY}"
-            data = get_json(url)
-            if data:
-                p, c = float(data[0]["price"]), float(data[0]["changesPercentage"])
-                _save_vxf_cache(p, c)
-                return p, c
-        except: pass
-
-    # 4. キャッシュ復旧
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r") as f:
                 cache = json.load(f)
                 return cache["price"], cache["change"]
     except: pass
-
     return 0.0, 0.0
 
-def _save_vxf_cache(price, change):
+def _save_cache(p, c):
     try:
         with open(CACHE_FILE, "w") as f:
-            json.dump({"price": price, "change": change, "time": datetime.now().isoformat()}, f)
+            json.dump({"price": p, "change": c}, f)
     except: pass
 
 # ============================
-# 市場データ集約
+# データ集約
 # ============================
 def get_market_data():
     d = {"data_date": "不明"}
-
-    # Yahoo系の一括取得（エラー耐性あり）
     targets = {
         "gold": "GC=F", "wti": "CL=F", "vix": "%5EVIX", 
         "nq": "NQ=F", "nk": "NK=F", "es": "ES=F", 
         "us10y": "%5ETNX", "us2y": "%5EIRX", "btc": "BTC-USD"
     }
-
     for key, symbol in targets.items():
         try:
             raw = get_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}")
             meta = raw["chart"]["result"][0]["meta"]
-            p = meta["regularMarketPrice"]
-            prev = meta["chartPreviousClose"]
-            d[f"{key}_price"] = p
-            d[f"{key}_change"] = (p - prev) / prev * 100
+            p, prev = meta["regularMarketPrice"], meta["chartPreviousClose"]
+            d[f"{key}_price"], d[f"{key}_change"] = p, (p - prev) / prev * 100
             if key == "vix": d["data_date"] = get_data_date(meta)
-        except:
-            d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
+        except: d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
 
-    # USD/JPY (外部API)
     try:
         fx = get_json("https://api.frankfurter.app/latest?from=USD&to=JPY")
         d["usd_jpy"] = fx["rates"]["JPY"]
     except: d["usd_jpy"] = 0.0
 
-    # VIX先物 (刷新した統合関数)
     d["vxf_price"], d["vxf_change"] = fetch_vix_futures()
-
-    # イールドカーブ
     d["yield_spread"] = d["us10y_price"] - d["us2y_price"] if d["us2y_price"] != 0 else 0.0
-
     return d
 
 # ============================
-# ロジック・メッセージ (統合)
+# メッセージ構築（出力イメージ準拠）
 # ============================
-def detect_mode(vix_price):
-    if vix_price >= 20: return "war"
-    if 0 < vix_price <= 15: return "peace"
-    return "transition"
+def build_message(d):
+    vix_p = d["vix_price"]
+    if vix_p >= 20:
+        mode, max_score = "戦時モード：相場反転スコア", 130
+        score = calc_war_score(d)
+    elif 0 < vix_p <= 15:
+        mode, max_score = "平時モード：トレンドスコア", 115
+        score = calc_peace_score(d)
+    else:
+        mode, max_score = "移行期モード：様子見", 130 # 移行期は暫定で戦時基準
+        score = calc_war_score(d)
 
-def scale_score(score, max_s):
-    return min(max(int(score / max_s * 100), 0), 100)
+    scaled = min(max(int(score / max_score * 100), 0), 100)
+    zone = classify_zone(scaled, "war" if vix_p >= 20 else "peace")
+    today = datetime.now().strftime("%Y.%m.%d")
+
+    msg = [
+        f"【{today} {mode}（100点版）】",
+        f"データ日：{d['data_date']}\n",
+        f"VIX現物: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）",
+        f"VIX先物: {d['vxf_price']:.2f}（{d['vxf_change']:.2f}%）\n",
+        "▼ 金利・イールドカーブ",
+        f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）",
+        f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）",
+        f"・イールドカーブ(10Y-2Y): {d['yield_spread']:.2f}\n",
+        "▼ 株価指数",
+        f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）",
+        f"・日経先物　: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）",
+        f"・S&P500先物: {d['es_price']:.2f}（{d['es_change']:.2f}%）\n",
+        "▼ コモディティ",
+        f"・金(Gold): {d['gold_price']:.2f}（{d['gold_change']:.2f}%）",
+        f"・原油(WTI): {d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n",
+        "▼ 暗号資産",
+        f"・BTC : {d['btc_price']:.2f}（{d['btc_change']:.2f}%）\n",
+        f"総合スコア：{scaled}点（{zone}）",
+        f"※ 生スコア：{score} / {max_score}"
+    ]
+    return "\n".join(msg)
+
+# ============================
+# スコアロジック (簡略化)
+# ============================
+def calc_war_score(d):
+    s = 0
+    if d["vxf_change"] <= -5: s += 30
+    elif d["vxf_change"] < 0: s += 15
+    if d["vix_change"] <= -5: s += 20
+    if d["us2y_change"] < 0: s += 20
+    if d["yield_spread"] < 0: s += 15
+    if d["btc_change"] >= 3: s += 15
+    if d["nq_change"] > 0: s += 15
+    return s
+
+def calc_peace_score(d):
+    s = 0
+    if d["nq_change"] > 0: s += 30
+    if d["es_change"] > 0: s += 30
+    if d["us10y_change"] < 0: s += 20
+    if d["usd_jpy"] >= 150: s += 20
+    if d["btc_change"] > 0: s += 15
+    return s
 
 def classify_zone(scaled, mode):
     if mode == "war":
@@ -178,58 +198,11 @@ def classify_zone(scaled, mode):
         return "有事継続"
     else:
         if scaled >= 80: return "強い上昇トレンド"
-        if scaled >= 60: return "上昇バイアスあり"
-        if scaled >= 40: return "上昇の初期"
         return "トレンド不明瞭"
 
-def calc_war_score(d):
-    s = 0
-    if d["vxf_change"] <= -5: s += 30
-    elif d["vxf_change"] < 0: s += 15
-    if d["vix_change"] <= -5: s += 20
-    elif d["vix_change"] < 0: s += 10
-    if d["us2y_change"] < 0: s += 15
-    if d["yield_spread"] < 0: s += 15
-    if d["btc_change"] >= 3: s += 15
-    if d["nq_change"] > 0: s += 10
-    return s
-
-def calc_peace_score(d):
-    s = 0
-    if d["nq_change"] > 0: s += 25
-    if d["es_change"] > 0: s += 25
-    if d["us10y_change"] < 0: s += 20
-    if d["usd_jpy"] >= 150: s += 15
-    if d["btc_change"] > 0: s += 15
-    return s
-
-# ============================
-# メイン実行
-# ============================
 def main():
     data = get_market_data()
-    mode = detect_mode(data["vix_price"])
-    
-    WAR_MAX, PEACE_MAX = 130, 115
-    today = datetime.now().strftime("%Y.%m.%d")
-    
-    if mode == "war":
-        raw = calc_war_score(data)
-        scaled = scale_score(raw, WAR_MAX)
-        zone = classify_zone(scaled, "war")
-        msg = f"【{today} 戦時モード】\nデータ日：{data['data_date']}\n\nVIX現物: {data['vix_price']:.2f}\nVIX先物: {data['vxf_price']:.2f}\nスコア: {scaled}点\n判定: {zone}"
-    
-    elif mode == "peace":
-        raw = calc_peace_score(data)
-        scaled = scale_score(raw, PEACE_MAX)
-        zone = classify_zone(scaled, "peace")
-        msg = f"【{today} 平時モード】\nデータ日：{data['data_date']}\n\nNASDAQ: {data['nq_change']:.2f}%\nUSD/JPY: {data['usd_jpy']:.2f}\nスコア: {scaled}点\n判定: {zone}"
-    
-    else:
-        w_scaled = scale_score(calc_war_score(data), WAR_MAX)
-        p_scaled = scale_score(calc_peace_score(data), PEACE_MAX)
-        msg = f"【{today} 移行期/不明】\nデータ日：{data['data_date']}\n\n戦時スコア: {w_scaled}点\n平時スコア: {p_scaled}点\n様子見を推奨します。"
-
+    msg = build_message(data)
     send_line(msg)
 
 if __name__ == "__main__":
