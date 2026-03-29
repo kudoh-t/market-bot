@@ -42,7 +42,7 @@ def send_line(text: str):
 # 共通ヘルパー
 # ============================
 def get_json(url: str):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         return resp.json()
@@ -57,12 +57,35 @@ def get_data_date(meta):
     return "不明"
 
 # ============================
-# VIX先物：四重化取得（CNBC/CNBC-APIを最優先）
+# VIX先物：最強の多重化取得
 # ============================
-def fetch_vix_futures():
-    # --- 1. CNBC API (非常に安定しており、先物1限月を直接取れる) ---
+def fetch_vix_futures(vix_spot_price=0.0):
+    # --- 1. Investing.com (ブラウザを装って最新タグから取得) ---
     try:
-        # @VX.1 はVIX先物の第1限月を指す汎用シンボル
+        url = "https://www.investing.com/indices/us-spx-vix-futures"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+        resp = requests.get(url, headers=headers, timeout=12)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        
+        # 2026年現在の最新セレクタ
+        p_el = soup.select_one('[data-test="instrument-price-last"]')
+        c_el = soup.select_one('[data-test="instrument-price-change-percent"]')
+        
+        if p_el:
+            p = float(p_el.text.replace(",", ""))
+            c_text = c_el.text.replace("%", "").replace("(", "").replace(")", "").strip()
+            c = float(c_text)
+            if p > 0:
+                _save_cache(p, c)
+                return p, c
+    except Exception as e:
+        print(f"Investing.com Failed: {e}")
+
+    # --- 2. CNBC API (バックアップ) ---
+    try:
         url = "https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=@VX.1&output=json"
         data = get_json(url)
         quote = data["QuickQuoteResult"]["QuickQuote"]
@@ -74,33 +97,12 @@ def fetch_vix_futures():
     except:
         print("CNBC API Failed")
 
-    # --- 2. CBOE公式 (JSONエンドポイント) ---
-    try:
-        url = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_vix.json"
-        data = get_json(url)
-        if data and "data" in data:
-            # ここは現物に近いが、先物データが取れない時の代替として
-            p = float(data["data"]["last_float"])
-            c = float(data["data"]["change_percentage_float"])
-            if p > 0:
-                return p, c
-    except:
-        pass
+    # --- 3. 最後の手段：現物VIXの値を代用 (0.00を絶対に避ける) ---
+    if vix_spot_price > 0:
+        print("Warning: Using VIX Spot as fallback for Futures.")
+        return vix_spot_price, 0.0
 
-    # --- 3. Yahoo Finance (v10 API) ---
-    try:
-        url = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/VX=F?modules=price"
-        data = get_json(url)
-        price_data = data["quoteSummary"]["result"][0]["price"]
-        p = float(price_data["regularMarketPrice"]["raw"])
-        c = float(price_data["regularMarketChangePercent"]["raw"]) * 100
-        if p > 0:
-            _save_cache(p, c)
-            return p, c
-    except:
-        pass
-
-    # --- 4. キャッシュ ---
+    # --- 4. 最終バックアップ：キャッシュ ---
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r") as f:
@@ -115,7 +117,7 @@ def _save_cache(p, c):
     if p <= 0: return
     try:
         with open(CACHE_FILE, "w") as f:
-            json.dump({"price": p, "change": c}, f)
+            json.dump({"price": p, "change": c, "updated_at": datetime.now().isoformat()}, f)
     except:
         pass
 
@@ -130,6 +132,7 @@ def get_market_data():
         "us10y": "%5ETNX", "us2y": "%5EIRX", "btc": "BTC-USD"
     }
 
+    # Yahoo Financeから基本データを取得
     for key, symbol in targets.items():
         try:
             raw = get_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}")
@@ -145,14 +148,17 @@ def get_market_data():
         except:
             d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
 
+    # 為替
     try:
         fx = get_json("https://api.frankfurter.app/latest?from=USD&to=JPY")
         d["usd_jpy"] = fx.get("rates", {}).get("JPY", 0.0)
     except:
         d["usd_jpy"] = 0.0
 
-    # VIX先物の取得実行
-    d["vxf_price"], d["vxf_change"] = fetch_vix_futures()
+    # VIX先物の取得実行（現物VIXを予備として渡す）
+    d["vxf_price"], d["vxf_change"] = fetch_vix_futures(vix_spot_price=d.get("vix_price", 0.0))
+
+    # イールドカーブ
     d["yield_spread"] = d["us10y_price"] - d["us2y_price"] if d["us2y_price"] != 0 else 0.0
 
     return d
@@ -162,13 +168,18 @@ def get_market_data():
 # ============================
 def calc_war_score(d):
     s = 0
-    # 先物の下げ（＝市場の落ち着き兆候）を検知
+    # VIX先物の変化率（下げていれば反転の兆し）
     if d["vxf_change"] <= -7: s += 40
     elif d["vxf_change"] < 0: s += 20
+    # VIX現物の急落
     if d["vix_change"] <= -5: s += 25
+    # 金利低下（リスクオフ緩和）
     if d["us2y_change"] < 0: s += 20
+    # 逆イールド解消の兆し
     if d["yield_spread"] < 0: s += 20
+    # BTCの上昇（リスクオン）
     if d["btc_change"] >= 3: s += 15
+    # 株価指数の上昇
     if d["nq_change"] > 0: s += 20
     if d["es_change"] > 0: s += 15
     return s
