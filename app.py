@@ -17,90 +17,73 @@ def send_line(text: str):
     body = {"to": LINE_USER_ID, "messages": [{"type": "text", "text": text}]}
     try:
         requests.post(url, headers=headers, data=json.dumps(body), timeout=10)
-    except:
-        pass
+    except: pass
 
 # ============================
-# データ取得系関数
+# 判定・解説ロジック
 # ============================
-def fetch_fear_and_greed():
-    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.cnn.com/markets/fear-and-greed"}
-    try:
-        res = requests.get("https://production.dataviz.cnn.io/index/feargreed/static/feargreed", headers=headers, timeout=10).json()
-        return int(res['fgi']['now']['value']), res['fgi']['now']['value_text'].upper()
-    except:
-        try:
-            res = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10).json()
-            return int(res['data'][0]['value']), res['data'][0]['value_classification'].upper()
-        except:
-            return 0, "取得失敗"
+def get_fgi_detail(val):
+    if val <= 25:   return f"🔥指数({val}): 極度の恐怖。歴史的には絶好の仕込み時。少額ずつ買い向かう勇気が報われやすい時期です。"
+    elif val <= 45: return f"😨指数({val}): 恐怖。下落への警戒が強い状態。リバウンドを待つか、キャッシュ比率を維持して静観が吉。"
+    elif val <= 55: return f"😐指数({val}): 中立。強弱感が拮抗。トレンドが明確になるまで大きな勝負は避けるべきです。"
+    elif val <= 75: return f"🚀指数({val}): 強欲。過熱感あり。追撃買いは控え、利益確定を優先的に検討すべきフェーズ。"
+    else:           return f"🚨指数({val}): 極度の強欲。バブル的な動き。いつ急落が来てもおかしくない警戒最大の状態。"
 
+def analyze_market_action(d):
+    actions = []
+    # 1. VIXバックワーデーション判定
+    if d["vix_price"] > d["vxf_price"] + 0.5:
+        actions.append("⚠️【パニック発生】現物VIXが先物より高い異常事態。短期的な底打ちが近いシグナルです。狼狽売りに乗らず反転を待ちましょう。")
+    # 2. 金利とNASDAQの相関
+    if d["us10y_change"] > 1.2 and d["nq_change"] < -0.8:
+        actions.append("📉【重力注意】米金利の急騰が株価を押し下げています。ハイテク株の買い増しは金利が落ち着くまで待機が安全。")
+    # 3. 日米の乖離
+    diff = d["nk_change"] - d["nq_change"]
+    if diff > 2.0:  actions.append("🇯🇵【日本株独歩高】米株より日本株が強すぎます。円安の限界や米株への追随リスクを考え、一部利確も一手。")
+    elif diff < -2.0: actions.append("🏯【日本株出遅れ】米株に比べ日本株が売られすぎです。独自の売り要因がなければ、日本株の拾い場。")
+    # 4. BTCの先行性
+    if d["btc_change"] < -4.0:
+        actions.append("🕊️【先行指標赤信号】BTC急落。リスクマネーが逃げ始めています。今夜の米株市場での急落に備え、警戒を。")
+    
+    return "\n\n".join(actions[:2]) if actions else "🧐【静観】目立った歪みはありません。現在のポジションを維持しつつトレンド待ちです。"
+
+# ============================
+# データ取得系
+# ============================
 def fetch_vix_spot():
     try:
         url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
         m = res["chart"]["result"][0]["meta"]
-        p, prev = m["regularMarketPrice"], m["chartPreviousClose"]
+        p, pr = m["regularMarketPrice"], m["chartPreviousClose"]
         dt = (datetime.fromtimestamp(m["regularMarketTime"], timezone.utc) + timedelta(hours=9)).strftime("%Y.%m.%d")
-        return p, (p - prev) / prev * 100, dt
-    except:
-        return 0.0, 0.0, "不明"
+        return p, (p - pr) / pr * 100, dt
+    except: return 0.0, 0.0, "不明"
 
 def fetch_vix_futures(vix_spot):
     try:
-        url = "https://www.investing.com/indices/us-spx-vix-futures"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        p_el = soup.select_one('[data-test="instrument-price-last"]')
-        if p_el: return float(p_el.text.replace(",", "")), 0.0
-    except: pass
-    return vix_spot, 0.0
+        res = requests.get("https://www.investing.com/indices/us-spx-vix-futures", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        p = float(BeautifulSoup(res.text, "html.parser").select_one('[data-test="instrument-price-last"]').text.replace(",", ""))
+        return p, 0.0
+    except: return vix_spot, 0.0 # 失敗時は現物で補完
 
-# ============================
-# マーケット一言診断ロジック
-# ============================
-def analyze_market(d):
-    analysis = []
-    
-    # 1. VIX乖離（バックワーデーション）
-    if d["vix_price"] > d["vxf_price"] + 0.5:
-        analysis.append("⚠️VIX逆転：現物が先物を上回る異常事態（パニック）です。歴史的には底打ちが近いサイン。")
-    elif d["vix_price"] < d["vxf_price"] - 1.0:
-        analysis.append("✅VIX順鞘：市場は冷静さを取り戻しつつあります。平時への移行フェーズです。")
-
-    # 2. 金利と指数の相関
-    if d["us10y_change"] > 1.0 and d["nq_change"] < -0.5:
-        analysis.append("📉金利上昇の重力：米10年金利の上昇がNASDAQの重石となっています。テック株には逆風。")
-    elif d["us10y_change"] < -1.0 and d["nq_change"] < -1.0:
-        analysis.append("😨景気後退懸念：金利低下と株安が同時進行。市場はインフレより『不況』を恐れ始めています。")
-
-    # 3. NASDAQと日経平均の乖離
-    diff_nk_nq = d["nk_change"] - d["nq_change"]
-    if diff_nk_nq > 1.5:
-        analysis.append("🇯🇵日経独歩高：米国株に比べ日本株が過剰に買われています。円安恩恵か、一時的な資金逃避先か。")
-    elif diff_nk_nq < -1.5:
-        analysis.append("🏯日本株の不振：米国株の底堅さに比べ、日本株が軟調。独自の売り要因（政治・為替）を警戒。")
-
-    # 4. BTCの先行性
-    if d["btc_change"] < -3.0:
-        analysis.append("🕊️カナリアの沈黙：BTCの急落はリスク資産全般からの資金引き揚げの先行指標となる可能性あり。")
-
-    if not analysis:
-        analysis.append("🧐特筆すべき歪みなし：各指標は概ね相関通りに動いています。トレンド追随が基本です。")
-    
-    return "\n".join(analysis[:3]) # 最大3つまで表示
-
-# ============================
-# メイン処理
-# ============================
 def get_market_data():
     d = {}
     d["vix_price"], d["vix_change"], d["data_date"] = fetch_vix_spot()
     d["vxf_price"], d["vxf_change"] = fetch_vix_futures(d["vix_price"])
-    d["fgi_score"], fgi_txt = fetch_fear_and_greed()
-    trans = {"EXTREME FEAR": "極度の恐怖", "FEAR": "恐怖", "NEUTRAL": "中立", "GREED": "強欲", "EXTREME GREED": "極度の強欲"}
-    d["fgi_rating"] = trans.get(fgi_txt, fgi_txt)
+    
+    # Fear & Greed 取得
+    try:
+        f_res = requests.get("https://production.dataviz.cnn.io/index/feargreed/static/feargreed", headers={"User-Agent":"Mozilla/5.0"}, timeout=10).json()
+        d["fgi_score"] = int(f_res['fgi']['now']['value'])
+    except:
+        try:
+            f_res = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10).json()
+            d["fgi_score"] = int(f_res['data'][0]['value'])
+        except: d["fgi_score"] = 0
+    d["fgi_text"] = get_fgi_detail(d["fgi_score"])
 
+    # 全指標一括取得 (重複を避けるためのループ)
     targets = {"gold": "GC=F", "wti": "CL=F", "nq": "NQ=F", "nk": "NK=F", "es": "ES=F", "us10y": "%5ETNX", "us2y": "%5EIRX", "btc": "BTC-USD"}
     for k, s in targets.items():
         try:
@@ -112,14 +95,15 @@ def get_market_data():
     d["yield_spread"] = d["us10y_price"] - d["us2y_price"]
     return d
 
+# ============================
+# メッセージ構築・実行
+# ============================
 def build_message(d):
     vix_p = d["vix_price"]
-    mode, max_s = ("戦時モード：相場反転スコア", 155) if vix_p >= 20 else ("平時モード：トレンドスコア", 135)
+    mode, max_s = ("戦時：反転スコア", 155) if vix_p >= 20 else ("平時：トレンド", 135)
     
     score = 0
-    if vix_p >= 20: # 戦時ロジック
-        if d["vxf_change"] <= -7: score += 40
-        elif d["vxf_change"] < 0: score += 20
+    if vix_p >= 20: # 有事の際の反転スコア加算
         if d["vix_change"] <= -5: score += 25
         if d["us2y_change"] < 0: score += 20
         if d["yield_spread"] < 0: score += 20
@@ -128,30 +112,26 @@ def build_message(d):
         if d["es_change"] > 0: score += 15
 
     scaled = min(max(int(score / max_s * 100), 0), 100)
-    diagnosis = analyze_market(d)
     
     msg = [
         f"【{datetime.now().strftime('%Y.%m.%d')} {mode}】",
         f"📅 データ日：{d['data_date']}\n",
         f"▼ 投資家心理 (Fear & Greed Index)",
-        f"指数：{d['fgi_score']} / 100（{d['fgi_rating']}）\n",
+        f"{d['fgi_text']}\n",
         f"▼ 主要指標",
         f"VIX現物: {d['vix_price']:.2f}（{d['vix_change']:.2f}%）",
-        f"VIX先物: {d['vxf_price']:.2f}（{d['vxf_change']:.2f}%）\n",
-        "▼ 金利・イールドカーブ",
-        f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）",
-        f"・米10年金利: {d['us10y_price']:.2f}（{d['us10y_change']:.2f}%）",
-        f"・イールドカーブ: {d['yield_spread']:.2f}\n",
-        "▼ 商品（コモディティ）",
-        f"・ゴールド : {d['gold_price']:.2f}（{d['gold_change']:.2f}%）",
-        f"・WTI原油  : {d['wti_price']:.2f}（{d['wti_change']:.2f}%）\n",
+        f"VIX先物: {d['vxf_price']:.2f}\n",
+        "▼ 商品・金利・暗号資産",
+        f"・Gold: {d['gold_price']:.1f} / 原油: {d['wti_price']:.1f}",
+        f"・米10年金利: {d['us10y_price']:.2f} / BTC: {d['btc_price']:.0f}",
+        f"・米2年金利: {d['us2y_price']:.2f}（{d['us2y_change']:.2f}%）\n",
         "▼ 株価指数",
-        f"・NASDAQ先物: {d['nq_price']:.2f}（{d['nq_change']:.2f}%）",
-        f"・日経平均先物: {d['nk_price']:.2f}（{d['nk_change']:.2f}%）\n",
-        "▼ 暗号資産",
-        f"・BTC : {d['btc_price']:.2f}（{d['btc_change']:.2f}%）\n",
-        f"総合反転スコア：{scaled}点",
-        f"\n🤖 マーケット一言診断：\n{diagnosis}"
+        f"・NASDAQ先物: {d['nq_price']:.1f}（{d['nq_change']:.2f}%）",
+        f"・日経平均先物: {d['nk_price']:.1f}（{d['nk_change']:.2f}%）",
+        f"・S&P500先物: {d['es_price']:.1f}（{d['es_change']:.2f}%）\n",
+        f"反転期待度：{scaled}点",
+        f"--------------------------",
+        f"💡 【行動指針】\n{analyze_market_action(d)}"
     ]
     return "\n".join(msg)
 
