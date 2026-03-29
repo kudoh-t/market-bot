@@ -26,7 +26,6 @@ def send_line(text: str):
     try:
         requests.post(url, headers=headers, data=json.dumps(body), timeout=10)
     except Exception:
-        # 通信エラー時は黙って無視（バッチとしての堅牢性優先）
         pass
 
 
@@ -119,15 +118,28 @@ def analyze_market_action(d):
     return "\n\n".join(actions[:2]) if actions else "🧐【特筆事項なし】目立った歪みなし。トレンド待ち。"
 
 
+# ============================
+# ★ 新規追加：BTCコメント
+# ============================
+def get_btc_comment(btc_change):
+    if btc_change is None:
+        return "⚠️BTCデータ取得失敗：判定不可。"
+
+    if btc_change > 1.5:
+        return "₿リスクオン気味：BTCが強く、投資家のリスク許容度がやや回復。"
+    elif btc_change >= 0:
+        return "₿小幅上昇：リスクオフ局面でも資金逃避先として底堅い動き。"
+    else:
+        return "₿リスクオフ：BTCも売られ、全体的にリスク回避姿勢が強い。"
+
+
+# ============================
+# ★ 修正：日米相対強弱コメント
+# ============================
 def get_equity_relative_comment(nk_change, nq_change, es_change):
-    """
-    日経平均先物と米株先物（NASDAQ・S&P500）の相対強弱コメント。
-    すべて％変化率ベースで判定。
-    """
     if nk_change is None or (nq_change is None and es_change is None):
         return "⚠️日米株価指数の相対比較：データ不足のため判定不可。"
 
-    # 米株側は NASDAQ と S&P500 の平均変化率でざっくり代表
     us_changes = []
     if nq_change is not None:
         us_changes.append(nq_change)
@@ -138,11 +150,13 @@ def get_equity_relative_comment(nk_change, nq_change, es_change):
         return "⚠️日米株価指数の相対比較：米株側データ不足。"
 
     us_avg = sum(us_changes) / len(us_changes)
-    diff = nk_change - us_avg  # 日本 − 米国（＋なら日本優位）
+    diff = nk_change - us_avg
 
-    # コメントロジック
     if diff >= 1.0:
-        return f"🇯🇵日本優位：日経平均先物が米株先物を約{diff:.2f}%上回る強さ。日本株に資金シフトの兆し。"
+        return (
+            f"🇯🇵日本優位：日経平均先物が米株先物を約{diff:.2f}%上回る動き。"
+            "ただし日本株が強いというより、米株の下げが大きい影響が大きい点に注意。"
+        )
     elif diff >= 0.3:
         return f"🇯🇵やや日本優位：日経平均先物が米株先物を約{diff:.2f}%上回る。相対的に底堅い動き。"
     elif diff <= -1.0:
@@ -151,8 +165,6 @@ def get_equity_relative_comment(nk_change, nq_change, es_change):
         return f"🇺🇸やや米国優位：日経平均先物が米株先物を約{abs(diff):.2f}%下回る。日本株は相対的に弱い。"
     else:
         return "⚖️日米拮抗：日経平均先物と米株先物の騰落率差は小さく、明確な優劣は見られません。"
-
-
 # ============================
 # データ取得
 # ============================
@@ -201,7 +213,6 @@ def fetch_vix_futures():
         price_text = price_el.text.replace(",", "").strip()
         price = float(price_text)
 
-        # 例: "+1.23%" / "-0.56%" / "0.00%"
         change_pct_text = change_pct_el.text.strip()
         change_pct_text = change_pct_text.replace("%", "").replace("+", "").strip()
         change_pct = float(change_pct_text)
@@ -275,7 +286,6 @@ def get_market_data():
 # 表示用ユーティリティ
 # ============================
 def fmt_price_change(price, change):
-    # 全指標で「値＋前日比％」を統一表示
     if price is None:
         return "取得失敗（前日比：取得失敗）"
     if change is None:
@@ -285,7 +295,6 @@ def fmt_price_change(price, change):
 
 
 def fmt_price_change_int(price, change):
-    # BTCなど整数表示用
     if price is None:
         return "取得失敗（前日比：取得失敗）"
     if change is None:
@@ -304,15 +313,12 @@ def fmt_price_change_one_decimal(price, change):
 
 
 def fmt_yield_spread(spread):
-    # 金利差の .3f エラーを完全回避するための専用フォーマッタ
     if spread is None:
         return "取得失敗"
     try:
         return f"{spread:.3f}"
     except Exception:
         return "取得失敗"
-
-
 # ============================
 # メッセージ構築
 # ============================
@@ -381,7 +387,8 @@ def build_message(d):
         f"・WTI原油  : {fmt_price_change_one_decimal(d['wti_price'], d['wti_change'])}\n",
 
         "▼ 暗号資産",
-        f"・BTC : ${fmt_price_change_int(d['btc_price'], d['btc_change'])}\n",
+        f"・BTC : ${fmt_price_change_int(d['btc_price'], d['btc_change'])}",
+        f"   💡 {get_btc_comment(d['btc_change'])}\n",
 
         "▼ 株価指数",
         f"・NASDAQ先物   : {fmt_price_change_one_decimal(d['nq_price'], d['nq_change'])}",
@@ -402,7 +409,10 @@ def build_message(d):
 
     return "\n".join(msg)
 
-#
+
+# ============================
+# メイン処理
+# ============================
 def main():
     data = get_market_data()
     send_line(build_message(data))
