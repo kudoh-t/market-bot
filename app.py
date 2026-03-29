@@ -25,7 +25,8 @@ def send_line(text: str):
     }
     try:
         requests.post(url, headers=headers, data=json.dumps(body), timeout=10)
-    except:
+    except Exception:
+        # 通信エラー時は黙って無視（バッチとしての堅牢性優先）
         pass
 
 
@@ -51,15 +52,16 @@ def get_fgi_detail(now_val, prev_val):
     if now_val is None:
         return "⚠️Fear & Greed Index：データ取得失敗（CNN APIエラー）"
 
-    # 前日比
-    if prev_val is None:
+    change = None
+    if prev_val is not None:
+        change = now_val - prev_val
+
+    if change is None:
         change_str = "前日比：取得失敗"
     else:
-        diff = now_val - prev_val
-        sign = "+" if diff > 0 else ""
-        change_str = f"前日比：{sign}{diff}pt"
+        sign = "+" if change > 0 else ""
+        change_str = f"前日比：{sign}{change:.0f}pt"
 
-    # コメント
     if now_val <= 25:
         base = f"🧊指数({now_val}): 極度の恐怖。歴史的には仕込み場になりやすい水準。"
     elif now_val <= 45:
@@ -117,6 +119,40 @@ def analyze_market_action(d):
     return "\n\n".join(actions[:2]) if actions else "🧐【特筆事項なし】目立った歪みなし。トレンド待ち。"
 
 
+def get_equity_relative_comment(nk_change, nq_change, es_change):
+    """
+    日経平均先物と米株先物（NASDAQ・S&P500）の相対強弱コメント。
+    すべて％変化率ベースで判定。
+    """
+    if nk_change is None or (nq_change is None and es_change is None):
+        return "⚠️日米株価指数の相対比較：データ不足のため判定不可。"
+
+    # 米株側は NASDAQ と S&P500 の平均変化率でざっくり代表
+    us_changes = []
+    if nq_change is not None:
+        us_changes.append(nq_change)
+    if es_change is not None:
+        us_changes.append(es_change)
+
+    if not us_changes:
+        return "⚠️日米株価指数の相対比較：米株側データ不足。"
+
+    us_avg = sum(us_changes) / len(us_changes)
+    diff = nk_change - us_avg  # 日本 − 米国（＋なら日本優位）
+
+    # コメントロジック
+    if diff >= 1.0:
+        return f"🇯🇵日本優位：日経平均先物が米株先物を約{diff:.2f}%上回る強さ。日本株に資金シフトの兆し。"
+    elif diff >= 0.3:
+        return f"🇯🇵やや日本優位：日経平均先物が米株先物を約{diff:.2f}%上回る。相対的に底堅い動き。"
+    elif diff <= -1.0:
+        return f"🇺🇸米国優位：日経平均先物が米株先物を約{abs(diff):.2f}%下回る。日本株は出遅れ・売られ気味。"
+    elif diff <= -0.3:
+        return f"🇺🇸やや米国優位：日経平均先物が米株先物を約{abs(diff):.2f}%下回る。日本株は相対的に弱い。"
+    else:
+        return "⚖️日米拮抗：日経平均先物と米株先物の騰落率差は小さく、明確な優劣は見られません。"
+
+
 # ============================
 # データ取得
 # ============================
@@ -129,7 +165,7 @@ def fetch_yahoo_price(symbol):
         prev = m["chartPreviousClose"]
         change_pct = (price - prev) / prev * 100
         return price, change_pct
-    except:
+    except Exception:
         return None, None
 
 
@@ -142,11 +178,15 @@ def fetch_vix_spot():
         dt = (datetime.fromtimestamp(r["regularMarketTime"], timezone.utc) + timedelta(hours=9)).strftime("%Y.%m.%d")
         change_pct = (p - pr) / pr * 100
         return p, change_pct, dt
-    except:
+    except Exception:
         return None, None, "データ取得失敗"
 
 
 def fetch_vix_futures():
+    """
+    Investing.com から VIX先物の現在値と前日比％を取得。
+    取得失敗時は (None, None, True) を返す。
+    """
     try:
         url = "https://www.investing.com/indices/us-spx-vix-futures"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
@@ -158,29 +198,35 @@ def fetch_vix_futures():
         if price_el is None or change_pct_el is None:
             return None, None, True
 
-        price = float(price_el.text.replace(",", "").strip())
-        pct = change_pct_el.text.replace("%", "").replace("+", "").strip()
-        change_pct = float(pct)
+        price_text = price_el.text.replace(",", "").strip()
+        price = float(price_text)
+
+        # 例: "+1.23%" / "-0.56%" / "0.00%"
+        change_pct_text = change_pct_el.text.strip()
+        change_pct_text = change_pct_text.replace("%", "").replace("+", "").strip()
+        change_pct = float(change_pct_text)
 
         return price, change_pct, False
-    except:
+    except Exception:
         return None, None, True
 
 
 def fetch_fgi():
+    """
+    Fear & Greed Index の現在値と前日値を取得。
+    取得失敗時は (None, None)。
+    """
     try:
         res = requests.get(
             "https://production.dataviz.cnn.io/index/feargreed/static/feargreed",
             headers={"User-Agent": "Mozilla/5.0"}, timeout=10
         ).json()
-
         now_val = int(res["fgi"]["now"]["value"])
         prev_val = None
         if "previous" in res["fgi"] and "value" in res["fgi"]["previous"]:
             prev_val = int(res["fgi"]["previous"]["value"])
-
         return now_val, prev_val
-    except:
+    except Exception:
         return None, None
 
 
@@ -198,7 +244,7 @@ def get_market_data():
     fgi_now, fgi_prev = fetch_fgi()
     d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
-    # --- その他マーケットデータ ---
+    # --- その他マーケットデータ（Yahoo） ---
     targets = {
         "gold": "GC=F",
         "wti": "CL=F",
@@ -226,39 +272,45 @@ def get_market_data():
 
 
 # ============================
-# 表示用フォーマッタ
+# 表示用ユーティリティ
 # ============================
 def fmt_price_change(price, change):
+    # 全指標で「値＋前日比％」を統一表示
     if price is None:
-        return "取得失敗（変化率：取得失敗）"
+        return "取得失敗（前日比：取得失敗）"
     if change is None:
-        return f"{price:.2f}（変化率：取得失敗）"
+        return f"{price:.2f}（前日比：取得失敗）"
     sign = "+" if change > 0 else ""
-    return f"{price:.2f}（{sign}{change:.2f}%）"
+    return f"{price:.2f}（前日比：{sign}{change:.2f}%）"
 
 
 def fmt_price_change_int(price, change):
+    # BTCなど整数表示用
     if price is None:
-        return "取得失敗（変化率：取得失敗）"
+        return "取得失敗（前日比：取得失敗）"
     if change is None:
-        return f"{price:.0f}（変化率：取得失敗）"
+        return f"{price:.0f}（前日比：取得失敗）"
     sign = "+" if change > 0 else ""
-    return f"{price:.0f}（{sign}{change:.2f}%）"
+    return f"{price:.0f}（前日比：{sign}{change:.2f}%）"
 
 
 def fmt_price_change_one_decimal(price, change):
     if price is None:
-        return "取得失敗（変化率：取得失敗）"
+        return "取得失敗（前日比：取得失敗）"
     if change is None:
-        return f"{price:.1f}（変化率：取得失敗）"
+        return f"{price:.1f}（前日比：取得失敗）"
     sign = "+" if change > 0 else ""
-    return f"{price:.1f}（{sign}{change:.2f}%）"
+    return f"{price:.1f}（前日比：{sign}{change:.2f}%）"
 
 
-def fmt_spread(v):
-    if v is None:
+def fmt_yield_spread(spread):
+    # 金利差の .3f エラーを完全回避するための専用フォーマッタ
+    if spread is None:
         return "取得失敗"
-    return f"{v:.3f}"
+    try:
+        return f"{spread:.3f}"
+    except Exception:
+        return "取得失敗"
 
 
 # ============================
@@ -293,13 +345,18 @@ def build_message(d):
 
     # --- VIX先物表示 ---
     if d["vxf_price"] is None:
-        vxf_display = "取得失敗（変化率：取得失敗）"
+        vxf_display = "取得失敗（前日比：取得失敗）"
     else:
         if d["vxf_change"] is None:
-            vxf_display = f"{d['vxf_price']:.2f}（変化率：取得失敗）"
+            vxf_display = f"{d['vxf_price']:.2f}（前日比：取得失敗）"
         else:
             sign = "+" if d["vxf_change"] > 0 else ""
-            vxf_display = f"{d['vxf_price']:.2f}（{sign}{d['vxf_change']:.2f}%）"
+            vxf_display = f"{d['vxf_price']:.2f}（前日比：{sign}{d['vxf_change']:.2f}%）"
+
+    # --- 日米相対強弱コメント ---
+    equity_relative_comment = get_equity_relative_comment(
+        d["nk_change"], d["nq_change"], d["es_change"]
+    )
 
     msg = [
         f"【{datetime.now().strftime('%Y.%m.%d')} {mode}】",
@@ -316,7 +373,7 @@ def build_message(d):
         "▼ 金利・イールドカーブ",
         f"・米2年金利 : {fmt_price_change(d['us2y_price'], d['us2y_change'])}",
         f"・米10年金利: {fmt_price_change(d['us10y_price'], d['us10y_change'])}",
-        f"・金利差(10Y-2Y): {fmt_spread(d['yield_spread'])}",
+        f"・金利差(10Y-2Y): {fmt_yield_spread(d['yield_spread'])}",
         f"   💡 {d['yield_text']}\n",
 
         "▼ 商品（コモディティ）",
@@ -327,9 +384,12 @@ def build_message(d):
         f"・BTC : ${fmt_price_change_int(d['btc_price'], d['btc_change'])}\n",
 
         "▼ 株価指数",
-        f"・NASDAQ先物: {fmt_price_change_one_decimal(d['nq_price'], d['nq_change'])}",
-        f"・日経平均先物: {fmt_price_change_one_decimal(d['nk_price'], d['nk_change'])}",
-        f"・S&P500先物 : {fmt_price_change_one_decimal(d['es_price'], d['es_change'])}\n",
+        f"・NASDAQ先物   : {fmt_price_change_one_decimal(d['nq_price'], d['nq_change'])}",
+        f"・日経平均先物 : {fmt_price_change_one_decimal(d['nk_price'], d['nk_change'])}",
+        f"・S&P500先物   : {fmt_price_change_one_decimal(d['es_price'], d['es_change'])}\n",
+
+        "▼ 日米相対強弱",
+        equity_relative_comment + "\n",
 
         f"⚖️ スコア評価：{scaled}点 / 100",
         f"（生スコア: {score} / {max_s}）",
