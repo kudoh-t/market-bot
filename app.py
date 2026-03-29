@@ -1,8 +1,6 @@
 import requests
 import json
 import os
-import pandas as pd
-import io
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
@@ -32,46 +30,49 @@ def send_line(text: str):
         print(f"LINE通信エラー: {e}")
 
 # ============================
-# NEW: Fear & Greed Index 取得（強化版）
+# Fear & Greed Index 取得（エンドポイント変更）
 # ============================
 def fetch_fear_and_greed():
     try:
-        # 複数のエンドポイントを試行
-        urls = [
-            "https://production.dataviz.cnn.io/index/feargreed/static/historical",
-            "https://fear-and-greed-index.p.rapidapi.com/v1/fgi" # 予備（将来用）
-        ]
+        # 履歴エンドポイントではなく、最新値のエンドポイントを試行
+        url = "https://production.dataviz.cnn.io/index/feargreed/static/feargreed"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json",
+            "Origin": "https://www.cnn.com",
             "Referer": "https://www.cnn.com/markets/fear-and-greed"
         }
-        resp = requests.get(urls[0], headers=headers, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=10)
         data = resp.json()
         
-        now_val = int(data['fear_and_greed']['score'])
-        rating = data['fear_and_greed']['rating'].upper()
+        now_val = int(data['fgi']['now']['value'])
+        rating = data['fgi']['now']['value_text'].upper()
         
-        translations = {"EXTREME FEAR": "極度の恐怖", "FEAR": "恐怖", "NEUTRAL": "中立", "GREED": "強欲", "EXTREME GREED": "極度の強欲"}
+        translations = {
+            "EXTREME FEAR": "極度の恐怖",
+            "FEAR": "恐怖",
+            "NEUTRAL": "中立",
+            "GREED": "強欲",
+            "EXTREME GREED": "極度の強欲"
+        }
         return now_val, translations.get(rating, rating)
     except Exception as e:
         print(f"F&G取得失敗: {e}")
         return 0, "取得失敗"
 
 # ============================
-# VIX現物・先物：取得強化
+# VIX現物・先物：取得
 # ============================
 def fetch_vix_spot():
-    # Yahoo FinanceのVIX現物取得
     try:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/^VIX" # エンコードなしを試行
+        # ^VIX の直接取得
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX"
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, headers=headers, timeout=10).json()
         meta = resp["chart"]["result"][0]["meta"]
         p = float(meta["regularMarketPrice"])
         prev = float(meta["chartPreviousClose"])
         change = (p - prev) / prev * 100
-        # データ日時の取得
+        # 日時処理
         ts = meta.get("regularMarketTime")
         dt = (datetime.fromtimestamp(ts, timezone.utc) + timedelta(hours=9)).strftime("%Y.%m.%d") if ts else "不明"
         return p, change, dt
@@ -79,51 +80,34 @@ def fetch_vix_spot():
         return 0.0, 0.0, "不明"
 
 def fetch_vix_futures(vix_spot_price=0.0):
-    # CNBC API経由で先物を取得
     try:
         url = "https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=@VX.1&output=json"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, headers=headers, timeout=10).json()
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
         quote = resp["QuickQuoteResult"]["QuickQuote"]
         return float(quote["last"]), float(quote["change_pct"])
     except:
-        # ダメならInvesting.comをトライ
-        try:
-            url = "https://www.investing.com/indices/us-spx-vix-futures"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-            resp = requests.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            p_el = soup.select_one('[data-test="instrument-price-last"]')
-            if p_el:
-                return float(p_el.text.replace(",", "")), 0.0
-        except:
-            pass
-    return vix_spot_price, 0.0 # 最終手段
+        return vix_spot_price, 0.0
 
 # ============================
 # メイン集約処理
 # ============================
 def get_market_data():
     d = {}
-    # 1. VIX現物の取得
     d["vix_price"], d["vix_change"], d["data_date"] = fetch_vix_spot()
-    
-    # 2. VIX先物 & F&G
     d["vxf_price"], d["vxf_change"] = fetch_vix_futures(vix_spot_price=d["vix_price"])
     d["fgi_score"], d["fgi_rating"] = fetch_fear_and_greed()
 
-    # 3. その他市場データ
+    # その他市場データ
     targets = {
         "gold": "GC=F", "wti": "CL=F", "nq": "NQ=F", "nk": "NK=F", 
-        "es": "ES=F", "us10y": "^TNX", "us2y": "^IRX", "btc": "BTC-USD"
+        "es": "ES=F", "us10y": "%5ETNX", "us2y": "%5EIRX", "btc": "BTC-USD"
     }
     for key, symbol in targets.items():
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
             raw = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
             meta = raw["chart"]["result"][0]["meta"]
-            p = meta["regularMarketPrice"]
-            prev = meta["chartPreviousClose"]
+            p, prev = meta["regularMarketPrice"], meta["chartPreviousClose"]
             d[f"{key}_price"], d[f"{key}_change"] = p, (p - prev) / prev * 100
         except:
             d[f"{key}_price"], d[f"{key}_change"] = 0.0, 0.0
@@ -138,7 +122,7 @@ def get_market_data():
     return d
 
 # ============================
-# スコア・メッセージ（ロジックは不変）
+# スコアロジック
 # ============================
 def calc_war_score(d):
     s = 0
