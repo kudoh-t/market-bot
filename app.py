@@ -60,7 +60,7 @@ def get_data_date(meta):
 # ============================
 
 def fetch_vix_futures():
-    # Yahoo Finance quote API（GitHub Actions でも成功率が高い）
+    # 1. Yahoo Finance quote API
     try:
         url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=VX=F"
         data = get_json(url)
@@ -69,20 +69,73 @@ def fetch_vix_futures():
         price = quote.get("regularMarketPrice")
         prev = quote.get("regularMarketPreviousClose")
 
-        if price is not None and prev is not None:
+        if price and prev:
             change = (price - prev) / prev * 100
             return price, change
-
-    except Exception:
+    except:
         pass
 
-    # キャッシュ復旧
+    # 2. Yahoo Finance chart API
+    try:
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/VX=F"
+        data = get_json(url)
+        result = data["chart"]["result"][0]
+        price = result["meta"]["regularMarketPrice"]
+        prev = result["meta"]["chartPreviousClose"]
+
+        if price and prev:
+            change = (price - prev) / prev * 100
+            return price, change
+    except:
+        pass
+
+    # 3. MarketWatch HTML
+    try:
+        url = "https://www.marketwatch.com/investing/future/vx00"
+        soup = get_soup(url)
+        price = float(soup.select_one(".intraday__price .value").text.replace(",", ""))
+        change = float(soup.select_one(".change--percent--q .value").text.replace("%", ""))
+        return price, change
+    except:
+        pass
+
+    # 4. CME HTML
+    try:
+        url = "https://www.cmegroup.com/markets/equities/volatility/vix.quotes.html"
+        soup = get_soup(url)
+        price = float(soup.select_one("td.last").text.strip())
+        prev = float(soup.select_one("td.settle").text.strip())
+        change = (price - prev) / prev * 100
+        return price, change
+    except:
+        pass
+
+    # 5. FMP API（APIキーがあれば最強）
+    try:
+        API_KEY = os.getenv("FMP_API_KEY")
+        if API_KEY:
+            url = f"https://financialmodelingprep.com/api/v3/quote/VX=F?apikey={API_KEY}"
+            data = get_json(url)
+            if data:
+                item = data[0]
+                price = item.get("price")
+                change = item.get("changesPercentage")
+                if price and change:
+                    return price, change
+    except:
+        pass
+
+    # 6. キャッシュ復旧
     try:
         with open("vixf_cache.json", "r") as f:
             cache = json.load(f)
             return cache["price"], cache["change"]
     except:
-        return 0.0, 0.0
+        pass
+
+    # 7. 最終的に失敗
+    return 0.0, 0.0
+
 
 
 def get_market_data():
