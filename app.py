@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
 
+
 def send_line(text: str):
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
         return
@@ -32,8 +33,10 @@ def send_line(text: str):
 # 判定・解説ロジック
 # ============================
 def get_vix_analysis(v_spot, v_fut, is_estimated):
-    if is_estimated:
-        return "⚠️先物データ取得失敗：現物のみで診断中。乖離判定は参考値です。"
+    if v_spot is None:
+        return "⚠️VIX現物データ取得失敗：リスク指標の精度低下に注意。"
+    if is_estimated or v_fut is None:
+        return "⚠️VIX先物データ取得失敗：現物のみで診断中。乖離判定は参考値です。"
 
     diff = v_spot - v_fut
     if diff > 0.5:
@@ -44,26 +47,40 @@ def get_vix_analysis(v_spot, v_fut, is_estimated):
         return "😐均衡状態：現物と先物が同水準。方向感を模索中です。"
 
 
-def get_fgi_detail(val):
-    if val is None:
+def get_fgi_detail(now_val, prev_val):
+    if now_val is None:
         return "⚠️Fear & Greed Index：データ取得失敗（CNN APIエラー）"
 
-    if val <= 25:
-        return f"🧊指数({val}): 極度の恐怖。歴史的には仕込み場になりやすい水準。"
-    elif val <= 45:
-        return f"😨指数({val}): 恐怖。下落への警戒が強い状態。静観が吉。"
-    elif val <= 55:
-        return f"😐指数({val}): 中立。強弱感が拮抗。トレンド待ち。"
-    elif val <= 75:
-        return f"🚀指数({val}): 強欲。過熱感あり。利益確定を優先。"
+    change = None
+    if prev_val is not None:
+        change = now_val - prev_val
+
+    if change is None:
+        change_str = "前日比：取得失敗"
     else:
-        return f"🚨指数({val}): 極度の強欲。急落警戒。"
+        sign = "+" if change > 0 else ""
+        change_str = f"前日比：{sign}{change:.0f}pt"
+
+    if now_val <= 25:
+        base = f"🧊指数({now_val}): 極度の恐怖。歴史的には仕込み場になりやすい水準。"
+    elif now_val <= 45:
+        base = f"😨指数({now_val}): 恐怖。下落への警戒が強い状態。静観が吉。"
+    elif now_val <= 55:
+        base = f"😐指数({now_val}): 中立。強弱感が拮抗。トレンド待ち。"
+    elif now_val <= 75:
+        base = f"🚀指数({now_val}): 強欲。過熱感あり。利益確定を優先。"
+    else:
+        base = f"🚨指数({now_val}): 極度の強欲。急落警戒。"
+
+    return f"{base}（{change_str}）"
 
 
 def get_yield_comment(spread, us10y_change):
+    if spread is None:
+        return "⚠️金利データ取得失敗：イールドカーブ判定不可。"
     if spread < 0:
         return "⚠️逆イールド：景気後退の強い予兆。"
-    elif spread >= 0.5 and us10y_change > 0:
+    elif spread >= 0.5 and (us10y_change is not None and us10y_change > 0):
         return "⚡急激なスティープニング：長期金利急騰。債券売りに注意。"
     elif 0 <= spread < 0.2:
         return "🔄フラット化：反転の兆し。ただし金利上昇なら株には逆風。"
@@ -84,13 +101,18 @@ def get_score_comment(scaled):
 def analyze_market_action(d):
     actions = []
 
-    if not d["vxf_is_estimated"] and d["vix_price"] > d["vxf_price"] + 0.5:
+    if (not d["vxf_is_estimated"]
+        and d["vix_price"] is not None
+        and d["vxf_price"] is not None
+        and d["vix_price"] > d["vxf_price"] + 0.5):
         actions.append("⚠️【VIX逆転】現物が先物を上回る異常事態。パニック売りに乗らず反転待ち。")
 
-    if d["us10y_change"] > 1.2 and d["nq_change"] < -0.8:
+    if (d["us10y_change"] is not None and d["us10y_change"] > 1.2
+        and d["nq_change"] is not None and d["nq_change"] < -0.8):
         actions.append("📉【金利の重力】長期金利急騰で株価に強い逆風。買い増しは危険。")
 
-    if d["gold_change"] > 2.0 and d["wti_change"] > 3.0:
+    if (d["gold_change"] is not None and d["gold_change"] > 2.0
+        and d["wti_change"] is not None and d["wti_change"] > 3.0):
         actions.append("🛢️【有事の動き】金と原油の同時急騰は地政学リスク。株には逆風。")
 
     return "\n\n".join(actions[:2]) if actions else "🧐【特筆事項なし】目立った歪みなし。トレンド待ち。"
@@ -99,6 +121,19 @@ def analyze_market_action(d):
 # ============================
 # データ取得
 # ============================
+def fetch_yahoo_price(symbol):
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
+        m = res["chart"]["result"][0]["meta"]
+        price = m["regularMarketPrice"]
+        prev = m["chartPreviousClose"]
+        change_pct = (price - prev) / prev * 100
+        return price, change_pct
+    except:
+        return None, None
+
+
 def fetch_vix_spot():
     try:
         url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX"
@@ -106,69 +141,131 @@ def fetch_vix_spot():
         r = res["chart"]["result"][0]["meta"]
         p, pr = r["regularMarketPrice"], r["chartPreviousClose"]
         dt = (datetime.fromtimestamp(r["regularMarketTime"], timezone.utc) + timedelta(hours=9)).strftime("%Y.%m.%d")
-        return p, (p - pr) / pr * 100, dt
+        change_pct = (p - pr) / pr * 100
+        return p, change_pct, dt
     except:
         return None, None, "データ取得失敗"
 
 
-def fetch_vix_futures(vix_spot):
+def fetch_vix_futures():
+    """
+    Investing.com から VIX先物の現在値と前日比％を取得。
+    取得失敗時は (None, None, True) を返す。
+    """
     try:
-        res = requests.get("https://www.investing.com/indices/us-spx-vix-futures",
-                           headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        p = float(BeautifulSoup(res.text, "html.parser")
-                  .select_one('[data-test="instrument-price-last"]').text.replace(",", ""))
-        return p, False
+        url = "https://www.investing.com/indices/us-spx-vix-futures"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        price_el = soup.select_one('[data-test="instrument-price-last"]')
+        change_pct_el = soup.select_one('[data-test="instrument-price-change-percent"]')
+
+        if price_el is None or change_pct_el is None:
+            return None, None, True
+
+        price_text = price_el.text.replace(",", "").strip()
+        price = float(price_text)
+
+        # 例: "+1.23%" / "-0.56%" / "0.00%"
+        change_pct_text = change_pct_el.text.strip()
+        change_pct_text = change_pct_text.replace("%", "").replace("+", "").strip()
+        change_pct = float(change_pct_text)
+
+        return price, change_pct, False
     except:
-        return vix_spot, True
+        return None, None, True
+
+
+def fetch_fgi():
+    """
+    Fear & Greed Index の現在値と前日値を取得。
+    取得失敗時は (None, None)。
+    """
+    try:
+        res = requests.get(
+            "https://production.dataviz.cnn.io/index/feargreed/static/feargreed",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=10
+        ).json()
+        now_val = int(res["fgi"]["now"]["value"])
+        prev_val = None
+        # previous / previous_close 的な値があれば使う
+        if "previous" in res["fgi"] and "value" in res["fgi"]["previous"]:
+            prev_val = int(res["fgi"]["previous"]["value"])
+        return now_val, prev_val
+    except:
+        return None, None
 
 
 def get_market_data():
     d = {}
 
-    # --- VIX ---
+    # --- VIX現物 ---
     d["vix_price"], d["vix_change"], d["data_date"] = fetch_vix_spot()
 
     # --- VIX先物 ---
-    d["vxf_price"], d["vxf_is_estimated"] = fetch_vix_futures(d["vix_price"])
+    vxf_price, vxf_change, vxf_is_estimated = fetch_vix_futures()
+    d["vxf_price"], d["vxf_change"], d["vxf_is_estimated"] = vxf_price, vxf_change, vxf_is_estimated
 
     # --- Fear & Greed Index ---
-    try:
-        f_res = requests.get(
-            "https://production.dataviz.cnn.io/index/feargreed/static/feargreed",
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=10
-        ).json()
-        d["fgi_score"] = int(f_res['fgi']['now']['value'])
-    except:
-        d["fgi_score"] = None
+    fgi_now, fgi_prev = fetch_fgi()
+    d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
-    # --- その他マーケットデータ ---
+    # --- その他マーケットデータ（Yahoo） ---
     targets = {
-        "gold": "GC=F", "wti": "CL=F", "nq": "NQ=F", "nk": "NK=F",
-        "es": "ES=F", "us10y": "%5ETNX", "us2y": "%5EIRX", "btc": "BTC-USD"
+        "gold": "GC=F",
+        "wti": "CL=F",
+        "nq": "NQ=F",
+        "nk": "NK=F",
+        "es": "ES=F",
+        "us10y": "%5ETNX",
+        "us2y": "%5EIRX",
+        "btc": "BTC-USD",
     }
 
     for k, s in targets.items():
-        try:
-            r = requests.get(
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{s}",
-                headers={"User-Agent": "Mozilla/5.0"}, timeout=10
-            ).json()
-            m = r["chart"]["result"][0]["meta"]
-            price = m["regularMarketPrice"]
-            change = (price - m["chartPreviousClose"]) / m["chartPreviousClose"] * 100
-            d[f"{k}_price"], d[f"{k}_change"] = price, change
-        except:
-            d[f"{k}_price"], d[f"{k}_change"] = None, None
+        price, change = fetch_yahoo_price(s)
+        d[f"{k}_price"], d[f"{k}_change"] = price, change
 
     # --- イールドスプレッド ---
     if d["us10y_price"] is None or d["us2y_price"] is None:
         d["yield_spread"] = None
-        d["yield_text"] = "⚠️金利データ取得失敗"
     else:
         d["yield_spread"] = d["us10y_price"] - d["us2y_price"]
-        d["yield_text"] = get_yield_comment(d["yield_spread"], d["us10y_change"])
+
+    d["yield_text"] = get_yield_comment(d["yield_spread"], d["us10y_change"])
 
     return d
+
+
+# ============================
+# 表示用ユーティリティ
+# ============================
+def fmt_price_change(price, change):
+    if price is None:
+        return "取得失敗（変化率：取得失敗）"
+    if change is None:
+        return f"{price:.2f}（変化率：取得失敗）"
+    sign = "+" if change > 0 else ""
+    return f"{price:.2f}（{sign}{change:.2f}%）"
+
+
+def fmt_price_change_int(price, change):
+    # BTCなど整数表示用
+    if price is None:
+        return "取得失敗（変化率：取得失敗）"
+    if change is None:
+        return f"{price:.0f}（変化率：取得失敗）"
+    sign = "+" if change > 0 else ""
+    return f"{price:.0f}（{sign}{change:.2f}%）"
+
+
+def fmt_price_change_one_decimal(price, change):
+    if price is None:
+        return "取得失敗（変化率：取得失敗）"
+    if change is None:
+        return f"{price:.1f}（変化率：取得失敗）"
+    sign = "+" if change > 0 else ""
+    return f"{price:.1f}（{sign}{change:.2f}%）"
 
 
 # ============================
@@ -181,7 +278,10 @@ def build_message(d):
     # --- スコア計算 ---
     score = 0
     if vix_p >= 20:
-        if not d["vxf_is_estimated"] and (d["vix_price"] > d["vxf_price"]):
+        if (not d["vxf_is_estimated"]
+            and d["vix_price"] is not None
+            and d["vxf_price"] is not None
+            and d["vix_price"] > d["vxf_price"]):
             score += 30
         if d["vix_change"] is not None and d["vix_change"] <= -5:
             score += 25
@@ -198,46 +298,45 @@ def build_message(d):
 
     scaled = min(max(int(score / max_s * 100), 0), 100)
 
-    # --- 表示用 ---
-    vxf_display = (
-        "取得失敗（現物代用）" if d["vxf_is_estimated"]
-        else f"{d['vxf_price']:.2f}"
-    )
-
-    fgi_display = (
-        "データ取得失敗" if d["fgi_score"] is None
-        else str(d["fgi_score"])
-    )
+    # --- VIX先物表示 ---
+    if d["vxf_price"] is None:
+        vxf_display = "取得失敗（変化率：取得失敗）"
+    else:
+        if d["vxf_change"] is None:
+            vxf_display = f"{d['vxf_price']:.2f}（変化率：取得失敗）"
+        else:
+            sign = "+" if d["vxf_change"] > 0 else ""
+            vxf_display = f"{d['vxf_price']:.2f}（{sign}{d['vxf_change']:.2f}%）"
 
     msg = [
         f"【{datetime.now().strftime('%Y.%m.%d')} {mode}】",
         f"📅 データ日：{d['data_date']}\n",
 
         "▼ 投資家心理 (Fear & Greed Index)",
-        f"{get_fgi_detail(d['fgi_score'])}\n",
+        f"{get_fgi_detail(d['fgi_score'], d['fgi_prev'])}\n",
 
         "▼ 主要リスク指標",
-        f"VIX現物: {d['vix_price'] if d['vix_price'] is not None else '取得失敗'}",
+        f"VIX現物: {fmt_price_change(d['vix_price'], d['vix_change'])}",
         f"VIX先物: {vxf_display}",
         f" 💡 {get_vix_analysis(d['vix_price'], d['vxf_price'], d['vxf_is_estimated'])}\n",
 
         "▼ 金利・イールドカーブ",
-        f"・米2年金利 : {d['us2y_price'] if d['us2y_price'] is not None else '取得失敗'}",
-        f"・米10年金利: {d['us10y_price'] if d['us10y_price'] is not None else '取得失敗'}",
-        f"・金利差(10Y-2Y): {d['yield_spread'] if d['yield_spread'] is not None else '取得失敗'}",
+        f"・米2年金利 : {fmt_price_change(d['us2y_price'], d['us2y_change'])}",
+        f"・米10年金利: {fmt_price_change(d['us10y_price'], d['us10y_change'])}",
+        f"・金利差(10Y-2Y): {d['yield_spread']:.3f if d['yield_spread'] is not None else '取得失敗'}",
         f"   💡 {d['yield_text']}\n",
 
         "▼ 商品（コモディティ）",
-        f"・ゴールド : {d['gold_price'] if d['gold_price'] is not None else '取得失敗'}",
-        f"・WTI原油  : {d['wti_price'] if d['wti_price'] is not None else '取得失敗'}\n",
+        f"・ゴールド : {fmt_price_change_one_decimal(d['gold_price'], d['gold_change'])}",
+        f"・WTI原油  : {fmt_price_change_one_decimal(d['wti_price'], d['wti_change'])}\n",
 
         "▼ 暗号資産",
-        f"・BTC : {d['btc_price'] if d['btc_price'] is not None else '取得失敗'}\n",
+        f"・BTC : ${fmt_price_change_int(d['btc_price'], d['btc_change'])}\n",
 
         "▼ 株価指数",
-        f"・NASDAQ先物: {d['nq_price'] if d['nq_price'] is not None else '取得失敗'}",
-        f"・日経平均先物: {d['nk_price'] if d['nk_price'] is not None else '取得失敗'}",
-        f"・S&P500先物 : {d['es_price'] if d['es_price'] is not None else '取得失敗'}\n",
+        f"・NASDAQ先物: {fmt_price_change_one_decimal(d['nq_price'], d['nq_change'])}",
+        f"・日経平均先物: {fmt_price_change_one_decimal(d['nk_price'], d['nk_change'])}",
+        f"・S&P500先物 : {fmt_price_change_one_decimal(d['es_price'], d['es_change'])}\n",
 
         f"⚖️ スコア評価：{scaled}点 / 100",
         f"（生スコア: {score} / {max_s}）",
