@@ -60,87 +60,25 @@ def get_data_date(meta):
 # ============================
 
 def fetch_vix_futures():
-    # -----------------------------
-    # ① Yahoo Finance（query1 → query2）
-    # -----------------------------
-    yahoo_urls = [
-        "https://query1.finance.yahoo.com/v8/finance/chart/VX=F",
-        "https://query2.finance.yahoo.com/v8/finance/chart/VX=F"
-    ]
+    try:
+        url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=VX=F"
+        data = get_json(url)
+        quote = data["quoteResponse"]["result"][0]
 
-    for url in yahoo_urls:
+        price = quote["regularMarketPrice"]
+        prev = quote["regularMarketPreviousClose"]
+        change = (price - prev) / prev * 100
+
+        return price, change
+
+    except Exception:
+        # 失敗したらキャッシュ復旧
         try:
-            data = get_json(url)
-            result = data.get("chart", {}).get("result")
-            if not result:
-                continue
-
-            meta = result[0].get("meta", {})
-            price = meta.get("regularMarketPrice")
-            prev = meta.get("chartPreviousClose")
-
-            if price is None or prev is None:
-                continue
-
-            change = (price - prev) / prev * 100
-            return price, change
-
-        except Exception:
-            continue
-
-    # -----------------------------
-    # ② CME（公式 HTML パース）
-    # -----------------------------
-    try:
-        url = "https://www.cmegroup.com/markets/equities/volatility/vix.quotes.html"
-        html = requests.get(url, timeout=5).text
-        soup = BeautifulSoup(html, "html.parser")
-
-        price_tag = soup.find("span", class_="last")
-        if price_tag:
-            price = float(price_tag.text.replace(",", ""))
-
-            change_tag = soup.find("span", class_="change")
-            if change_tag:
-                change = float(change_tag.text.replace("%", "").replace(",", ""))
-            else:
-                change = 0.0
-
-            return price, change
-    except Exception:
-        pass
-
-    # -----------------------------
-    # ③ MarketWatch（HTML パース）
-    # -----------------------------
-    try:
-        url = "https://www.marketwatch.com/investing/future/vx00"
-        html = requests.get(url, timeout=5).text
-        soup = BeautifulSoup(html, "html.parser")
-
-        price_tag = soup.find("bg-quote", class_="value")
-        change_tag = soup.find("bg-quote", class_="change--percent--q")
-
-        if price_tag:
-            price = float(price_tag.text.replace(",", ""))
-            if change_tag:
-                change = float(change_tag.text.replace("%", "").replace(",", ""))
-            else:
-                change = 0.0
-
-            return price, change
-    except Exception:
-        pass
-
-    # -----------------------------
-    # ④ キャッシュ復旧
-    # -----------------------------
-    try:
-        with open("vixf_cache.json", "r") as f:
-            cache = json.load(f)
-            return cache["price"], cache["change"]
-    except:
-        return 0.0, 0.0
+            with open("vixf_cache.json", "r") as f:
+                cache = json.load(f)
+                return cache["price"], cache["change"]
+        except:
+            return 0.0, 0.0
 
 
 def get_market_data():
