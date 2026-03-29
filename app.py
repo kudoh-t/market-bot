@@ -232,9 +232,63 @@ def build_message(d):
     ]
     return "\n".join(msg)
 
+# ============================
+# 追加設定：Gemini API
+# ============================
+# Google AI Studio (https://aistudio.google.com/) で取得したキーを設定
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    # 思考が深く、かつレスポンスの速い 1.5-flash または 1.5-pro を選択
+    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+
+def get_gemini_opinion(market_text: str):
+    """
+    作成した分析レポートをGeminiに送り、ざっくりとした感想をもらう
+    """
+    if not GEMINI_API_KEY:
+        return "（Gemini APIキーが設定されていないため、AI評価はスキップされました）"
+
+    # あえて「ざっくり」としたプロンプトに設定
+    prompt = f"""
+    以下の市場分析レポートを読んで、プロのストラテジストとして「どう思いますか？」
+    率直な感想や、このロジックでカバーできていない懸念点、あるいは注目すべきポジティブな兆候など、
+    あなたの視点で自由にコメントしてください。
+
+    【分析レポート】
+    {market_text}
+    """
+
+    try:
+        response = ai_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"⚠️Gemini評価取得中にエラーが発生しました: {e}"
+
+# ============================
+# メイン処理（ここを差し替え）
+# ============================
 def main():
+    # 1. 既存のロジックでデータを取得
     data = get_market_data()
-    send_line(build_message(data))
+    
+    # 2. 自分で作った分析メッセージを構築
+    my_report = build_message(data)
+    
+    # 3. Geminiに「どう思う？」と聞く
+    print("Geminiに意見を求めています...")
+    ai_feedback = get_gemini_opinion(my_report)
+    
+    # 4. 自分のレポートとGeminiの意見を合体させる
+    final_message = (
+        f"{my_report}\n\n"
+        "--- 🤖 Gemini's View ---\n"
+        f"{ai_feedback}"
+    )
+    
+    # 5. LINEに送信
+    send_line(final_message)
 
 if __name__ == "__main__":
     main()
