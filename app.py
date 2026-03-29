@@ -60,25 +60,29 @@ def get_data_date(meta):
 # ============================
 
 def fetch_vix_futures():
+    # Yahoo Finance quote API（GitHub Actions でも成功率が高い）
     try:
         url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=VX=F"
         data = get_json(url)
         quote = data["quoteResponse"]["result"][0]
 
-        price = quote["regularMarketPrice"]
-        prev = quote["regularMarketPreviousClose"]
-        change = (price - prev) / prev * 100
+        price = quote.get("regularMarketPrice")
+        prev = quote.get("regularMarketPreviousClose")
 
-        return price, change
+        if price is not None and prev is not None:
+            change = (price - prev) / prev * 100
+            return price, change
 
     except Exception:
-        # 失敗したらキャッシュ復旧
-        try:
-            with open("vixf_cache.json", "r") as f:
-                cache = json.load(f)
-                return cache["price"], cache["change"]
-        except:
-            return 0.0, 0.0
+        pass
+
+    # キャッシュ復旧
+    try:
+        with open("vixf_cache.json", "r") as f:
+            cache = json.load(f)
+            return cache["price"], cache["change"]
+    except:
+        return 0.0, 0.0
 
 
 def get_market_data():
