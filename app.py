@@ -244,7 +244,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+    ai_model = genai.GenerativeModel('gemini-2.0-flash')
 def get_gemini_opinion(market_text: str):
     """
     作成した分析レポートをGeminiに送り、ざっくりとした感想をもらう
