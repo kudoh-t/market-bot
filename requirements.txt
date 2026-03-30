@@ -4,3 +4,4 @@ pandas
 lxml
 google-generativeai
 python-dotenv
+tenacity
