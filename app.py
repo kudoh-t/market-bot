@@ -21,27 +21,6 @@ if GEMINI_API_KEY:
     ai_model = genai.GenerativeModel('gemini-2.0-flash')
 
 # ============================
-# ユーティリティ・送信
-# ============================
-def send_line(text: str):
-    if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
-        print("LINE設定がありません。標準出力します:\n", text)
-        return
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
-    }
-    body = {
-        "to": LINE_USER_ID,
-        "messages": [{"type": "text", "text": text}]
-    }
-    try:
-        requests.post(url, headers=headers, data=json.dumps(body), timeout=10)
-    except Exception as e:
-        print(f"LINE送信エラー: {e}")
-
-# ============================
 # 判定・解説ロジック
 # ============================
 def get_vix_analysis(v_spot, v_fut, is_estimated):
@@ -59,7 +38,7 @@ def get_vix_analysis(v_spot, v_fut, is_estimated):
         return f"😐均衡状態：方向感を模索中です。{est_msg}"
 
 def get_fgi_detail(now_val, prev_val):
-    if now_val is None: return "⚠️Fear & Greed Index：データ取得失敗"
+    if now_val is None: return "⚠️Fear & Greed Index：データ取得失敗（CNNの仕様変更の可能性）"
     change_str = f"前日比：{now_val - prev_val:+.0f}pt" if prev_val is not None else ""
     if now_val <= 25: base = f"🧊指数({now_val}): 極度の恐怖。歴史的には仕込み場。"
     elif now_val <= 45: base = f"😨指数({now_val}): 恐怖。警戒が強い状態。"
@@ -102,10 +81,11 @@ def get_btc_comment(btc_change):
     return "⚖️【横ばい】仮想通貨市場は安定。波及効果は限定的。"
 
 def get_equity_relative_comment(nk_change, nq_change, es_change):
-    if nk_change is None or (nq_change is None and es_change is None): return "⚠️日米相対強弱：データ不足。"
-    us_avg = sum([c for c in [nq_change, es_change] if c is not None]) / 2
+    valid_us = [c for c in [nq_change, es_change] if c is not None]
+    if nk_change is None or not valid_us: return "⚠️日米相対強弱：データ不足。"
+    us_avg = sum(valid_us) / len(valid_us)
     diff = nk_change - us_avg
-    if diff >= 0.5: return f"🇯🇵日本優位：日経先物が米株を約{diff:.2f}%上回る相対的な強さ。"
+    if diff >= 0.5: return f"🇯🇵日本優位：日経先物が米株平均を約{diff:.2f}%上回る相対的な強さ。"
     elif diff <= -0.5: return f"🇺🇸米国優位：日経先物が約{abs(diff):.2f}%下回る出遅れ状態。"
     return "⚖️日米拮抗：明確な優劣なし。"
 
@@ -170,17 +150,25 @@ def fetch_fgi_multi():
 
 def get_market_data():
     d = {}
+    d["fgi_score"], d["fgi_prev"] = fetch_fgi_multi()
     d["vix_price"], d["vix_change"], d["data_date"] = fetch_vix_spot()
     d["vxf_price"], d["vxf_change"], d["vxf_is_estimated"] = fetch_vix_futures_multi()
-    d["fgi_score"], d["fgi_prev"] = fetch_fgi_multi()
 
     targets = {
         "gold":"GC=F", "wti":"CL=F", "copper":"HG=F", 
         "nq":"NQ=F", "nk":"NK=F", "es":"ES=F", 
-        "us10y":"%5ETNX", "us2y":"2Y=F", "btc":"BTC-USD"
+        "us10y":"%5ETNX", "btc":"BTC-USD"
     }
     for k, s in targets.items():
         d[f"{k}_price"], d[f"{k}_change"] = fetch_yahoo_price(s)
+
+    # 米2年債の安定取得 (フォールバック付)
+    for sym in ["2Y=F", "^IRX", "ZT=F", "^ZYY"]:
+        p, c = fetch_yahoo_price(sym)
+        if p is not None:
+            d["us2y_price"], d["us2y_change"] = p, c
+            break
+    else: d["us2y_price"], d["us2y_change"] = None, None
 
     if d.get("us10y_price") is not None and d.get("us2y_price") is not None:
         d["yield_spread"] = d["us10y_price"] - d["us2y_price"]
@@ -220,32 +208,31 @@ def build_message(d):
         
     scaled = min(max(int(score / max_s * 100), 0), 100)
     
-    # メッセージ構成の順序変更
     msg = [
         f"【{datetime.now().strftime('%Y.%m.%d')} {mode}】",
         f"📅 データ日：{d.get('data_date')}\n",
-        "▼ 投資家心理 (FGI)", # ★最上段へ移動
+        "▼ 1. 投資家心理 (FGI)",
         f"{get_fgi_detail(d.get('fgi_score'), d.get('fgi_prev'))}\n",
-        "▼ 主要指数先物", # ★次に配置
+        "▼ 2. 主要指数先物 & 相対強弱",
         f"・米 NQ100 : {fmt_p(d.get('nq_price'), d.get('nq_change'))}",
         f"・米 S&P500: {fmt_p(d.get('es_price'), d.get('es_change'))}",
         f"・日経平均  : {fmt_p(d.get('nk_price'), d.get('nk_change'))}",
-        f" 💡 {get_equity_relative_comment(d.get('nk_change'), d.get('nq_change'), d.get('es_change'))}\n", # ★ここに統合
-        "▼ リスク指標",
+        f" 💡 {get_equity_relative_comment(d.get('nk_change'), d.get('nq_change'), d.get('es_change'))}\n",
+        "▼ 3. リスク指標",
         f"VIX現物: {fmt_p(d.get('vix_price'), d.get('vix_change'))}",
         f"VIX先物: {fmt_p(d.get('vxf_price'), d.get('vxf_change'))}",
         f" 💡 {get_vix_analysis(d.get('vix_price'), d.get('vxf_price'), d.get('vxf_is_estimated'))}\n",
-        "▼ 金利/イールド",
+        "▼ 4. 金利/イールド",
         f"・米10Y : {fmt_p(d.get('us10y_price'), d.get('us10y_change'))}",
         f"・米2Y  : {fmt_p(d.get('us2y_price'), d.get('us2y_change'))}",
         f"・10Y-2Y: {d.get('yield_spread'):.3f}" if d.get('yield_spread') is not None else "・10Y-2Y: 失敗",
         f" 💡 {d.get('yield_text')}\n",
-        "▼ 商品 (Commodities)",
+        "▼ 5. 商品 (Commodities)",
         f"・金 : {fmt_p(d.get('gold_price'), d.get('gold_change'), 1)}",
         f"・原油: {fmt_p(d.get('wti_price'), d.get('wti_change'), 2)}",
         f"・銅 : {fmt_p(d.get('copper_price'), d.get('copper_change'), 3)}",
         f" 💡 {get_commodities_combined_analysis(d.get('gold_change'), d.get('wti_change'), d.get('copper_change'))}\n",
-        "▼ 暗号資産 (Crypto)",
+        "▼ 6. 暗号資産 (Crypto)",
         f"・BTC : ${fmt_p(d.get('btc_price'), d.get('btc_change'), 0)}",
         f" 💡 {get_btc_comment(d.get('btc_change'))}\n",
         f"⚖️ スコア評価：{scaled}点 / 100",
