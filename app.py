@@ -81,27 +81,17 @@ def get_yield_comment(spread, us10y_change):
     else: 
         return "✅順イールド：金利体系は正常。"
 
-# ★修正ポイント：商品セクターの複合分析ロジックをアップデート
 def get_commodities_combined_analysis(gold_c, wti_c, cop_c):
     if any(v is None for v in [gold_c, wti_c, cop_c]):
         return "⚠️商品データ不足：複合分析不可。"
-    
-    # 1. 【地政学リスク・有事インフレ】金と原油が同時に強い
     if gold_c > 0.5 and wti_c > 1.0:
         return "🚨【有事・インフレ警戒】地政学リスクで金と原油が同時急騰。コスト増と金利上昇が株価の強い重石に。"
-    
-    # 2. 【景気後退・リスクオフ】実需（銅・原油）安、金高
     elif gold_c > 0.5 and wti_c < -1.0 and cop_c < -1.0:
         return "📉【景気後退懸念】実需（銅・原油）が冷え込み、金へ資金逃避。深刻なリスクオフの兆候。"
-    
-    # 3. 【スタグフレーション警戒】景気指標(銅)は弱いが燃料(原油)は高い
     elif cop_c < -1.0 and wti_c > 1.0:
         return "⚠️【不吉な兆候】景気指標(銅)は弱いが燃料(原油)は高い。スタグフレーション(不況下の物価高)に厳重注意。"
-
-    # 4. 【平時の景気拡大】金安、銅・原油高（両方揃うことが条件）
     elif gold_c < -0.5 and (wti_c > 1.0 and cop_c > 1.0):
         return "🏗️【需要主導の買い】リスク緩和下での資源高。実需を伴う経済活性化のサイン。株には追い風。"
-    
     return "⚖️【均衡状態】各商品の動きがまちまちで、明確なマクロシグナルなし。"
 
 def get_btc_comment(btc_change):
@@ -214,22 +204,32 @@ def fmt_p(p, c, dec=2):
 
 def build_message(d):
     vix_p = d.get("vix_price") or 0
+    # スコアリングモード判定
     mode, max_s = ("戦時モード：総合反転スコア", 155) if vix_p >= 20 else ("平時モード：トレンドスコア", 135)
     
     score = 0
+    # --- スコア加点ロジック (指数ベース) ---
+    if (d.get("nq_change") or 0) > 0: score += 25
+    if (d.get("es_change") or 0) > 0: score += 20
+    if (d.get("nk_change") or 0) > 0: score += 20
+    
+    # リスク指標による条件加点
     if vix_p >= 20:
         if (d.get("vix_price") or 0) > (d.get("vxf_price") or 0): score += 30
         if (d.get("vix_change") or 0) <= -5: score += 25
         if (d.get("us2y_change") or 0) < 0: score += 20
         if (d.get("yield_spread") or 0) < 0: score += 20
-        if (d.get("btc_change") or 0) >= 3: score += 15
-        if (d.get("nq_change") or 0) > 0: score += 25
-        if (d.get("es_change") or 0) > 0: score += 20
+    if (d.get("btc_change") or 0) >= 3: score += 15
+        
     scaled = min(max(int(score / max_s * 100), 0), 100)
     
     msg = [
         f"【{datetime.now().strftime('%Y.%m.%d')} {mode}】",
         f"📅 データ日：{d.get('data_date')}\n",
+        "▼ 主要指数先物",
+        f"・米 NQ100 : {fmt_p(d.get('nq_price'), d.get('nq_change'))}",
+        f"・米 S&P500: {fmt_p(d.get('es_price'), d.get('es_change'))}",
+        f"・日経平均  : {fmt_p(d.get('nk_price'), d.get('nk_change'))}\n",
         "▼ 投資家心理 (FGI)",
         f"{get_fgi_detail(d.get('fgi_score'), d.get('fgi_prev'))}\n",
         "▼ リスク指標",
@@ -263,26 +263,22 @@ def build_message(d):
 # Gemini API連携（リトライ処理付き）
 # ============================
 @retry(
-    stop=stop_after_attempt(3), # 最大3回試行
-    wait=wait_exponential(multiplier=10, min=10, max=60), # 10秒, 20秒...と待機時間を増やす
-    retry=retry_if_exception_type(Exception) # 例外が発生したらリトライ
+    stop=stop_after_attempt(3), 
+    wait=wait_exponential(multiplier=10, min=10, max=60), 
+    retry=retry_if_exception_type(Exception)
 )
 def fetch_gemini_content(prompt):
-    """実際にAPIを叩く部分を分離しリトライ対象にする"""
     response = ai_model.generate_content(prompt)
     return response.text.strip()
 
 def get_gemini_opinion(market_text: str):
     if not GEMINI_API_KEY:
         return "（Gemini APIキーが設定されていないため、AI評価はスキップされました）"
-
     prompt = f"以下の市場分析レポートを読んで、プロのストラテジストとして率直な感想や注目すべき兆候をコメントしてください。\n\n【分析レポート】\n{market_text}"
-
     try:
-        # リトライ機能付きの関数を呼び出す
         return fetch_gemini_content(prompt)
     except Exception as e:
-        return f"⚠️Gemini評価取得制限（Quota制限）によりスキップされました。後ほど手動で確認してください。: {e}"
+        return f"⚠️Gemini評価取得制限（Quota制限）によりスキップされました。: {e}"
 
 # ============================
 # メイン処理
