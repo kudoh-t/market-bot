@@ -81,17 +81,27 @@ def get_yield_comment(spread, us10y_change):
     else: 
         return "✅順イールド：金利体系は正常。"
 
+# ★修正ポイント：商品セクターの複合分析ロジックをアップデート
 def get_commodities_combined_analysis(gold_c, wti_c, cop_c):
     if any(v is None for v in [gold_c, wti_c, cop_c]):
         return "⚠️商品データ不足：複合分析不可。"
-    if gold_c > 1.0 and wti_c > 1.5:
-        return "🚨【地政学・インフレ警戒】金と原油が同時急騰。コストプッシュ・インフレが株価の重石に。"
+    
+    # 1. 【地政学リスク・有事インフレ】金と原油が同時に強い
+    if gold_c > 0.5 and wti_c > 1.0:
+        return "🚨【有事・インフレ警戒】地政学リスクで金と原油が同時急騰。コスト増と金利上昇が株価の強い重石に。"
+    
+    # 2. 【景気後退・リスクオフ】実需（銅・原油）安、金高
     elif gold_c > 0.5 and wti_c < -1.0 and cop_c < -1.0:
-        return "📉【景気後退懸念】銅と原油が売られ金に逃避。実需冷え込みを示唆する強いリスクオフ。"
-    elif gold_c < -0.5 and (wti_c > 1.0 or cop_c > 1.0):
-        return "🏗️【景気拡大・需要増】銅や原油に買い。実需を伴う経済活動の活性化。株には追い風。"
-    elif gold_c > 0.5 and cop_c < -1.0 and wti_c > 0.5:
-        return "⚠️【不吉な兆候】景気指標(銅)は弱いが燃料(原油)は高い。スタグフレーションに注意。"
+        return "📉【景気後退懸念】実需（銅・原油）が冷え込み、金へ資金逃避。深刻なリスクオフの兆候。"
+    
+    # 3. 【スタグフレーション警戒】景気指標(銅)は弱いが燃料(原油)は高い
+    elif cop_c < -1.0 and wti_c > 1.0:
+        return "⚠️【不吉な兆候】景気指標(銅)は弱いが燃料(原油)は高い。スタグフレーション(不況下の物価高)に厳重注意。"
+
+    # 4. 【平時の景気拡大】金安、銅・原油高（両方揃うことが条件）
+    elif gold_c < -0.5 and (wti_c > 1.0 and cop_c > 1.0):
+        return "🏗️【需要主導の買い】リスク緩和下での資源高。実需を伴う経済活性化のサイン。株には追い風。"
+    
     return "⚖️【均衡状態】各商品の動きがまちまちで、明確なマクロシグナルなし。"
 
 def get_btc_comment(btc_change):
