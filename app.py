@@ -236,13 +236,15 @@ def build_message(d):
 # 追加設定：Gemini API
 # ============================
 # Google AI Studio (https://aistudio.google.com/) で取得したキーを設定
+import os
+import google.generativeai as genai
+
+# GitHubの環境変数からキーを取得（.envファイルがなくてもActions上では動きます）
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    # 思考が深く、かつレスポンスの速い 1.5-flash または 1.5-pro を選択
     ai_model = genai.GenerativeModel('gemini-1.5-flash')
-
 def get_gemini_opinion(market_text: str):
     """
     作成した分析レポートをGeminiに送り、ざっくりとした感想をもらう
