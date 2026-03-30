@@ -3,9 +3,8 @@ import json
 import os
 import pickle
 from datetime import datetime, timezone, timedelta
-from bs4 import BeautifulSoup
 import google.generativeai as genai
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ============================
 # 設定：環境変数
@@ -136,18 +135,25 @@ def build_message(d):
     # キャッシュ更新
     with open(CACHE_FILE, "wb") as f: pickle.dump(d, f)
     
-    # スコア計算
+    # --- スコア計算の修正箇所 ---
     score = 0
+    # 戦時・移行モードなら155点満点、平時なら135点満点
     max_score = 155 if vix_p >= 20 else 135
+    
     if (d.get("nq_c") or 0) > 0: score += 25
     if (d.get("es_c") or 0) > 0: score += 20
     if (d.get("nk_c") or 0) > 0: score += 20
+    
     if vix_p >= 20:
+        # VIXバックワーデーション（逆転）は反転の強シグナルとして加算
         if (d.get("vix_p") or 0) > (d.get("vxf_p") or 0): score += 30
+        # 逆イールド（spread < 0）も戦時モードのスコア枠として計算
         if (d.get("spread") or 0) < 0: score += 20
+        
     if (d.get("btc_c") or 0) >= 3: score += 20
     
     scaled = min(max(int(score / max_score * 100), 0), 100)
+    
     def fmt(p, c, dec=2): return f"{p:.{dec}f}（{c:+.2f}%）" if p is not None else "取得失敗"
 
     msg = [
@@ -174,7 +180,8 @@ def build_message(d):
         "▼ 6. 仮想通貨 (Crypto)",
         f" ・BTC: ${fmt(d.get('btc_p'), d.get('btc_c'), 0)}",
         f" 💡 {get_btc_comment(d.get('btc_c'))}\n",
-        f"⚖️ 総合スコア：{scaled}点 / 100",
+        # ここを表示修正：スケーリング点数（素点 / 満点）
+        f"⚖️ 総合スコア：{scaled}点 / 100 （素点: {score} / {max_score}）",
         f" {'📈 打診買い検討' if scaled >= 50 else '🌑 キャッシュ保護優先'}\n",
         "--------------------------"
     ]
