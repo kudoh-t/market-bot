@@ -204,16 +204,13 @@ def fmt_p(p, c, dec=2):
 
 def build_message(d):
     vix_p = d.get("vix_price") or 0
-    # スコアリングモード判定
     mode, max_s = ("戦時モード：総合反転スコア", 155) if vix_p >= 20 else ("平時モード：トレンドスコア", 135)
     
     score = 0
-    # --- スコア加点ロジック (指数ベース) ---
     if (d.get("nq_change") or 0) > 0: score += 25
     if (d.get("es_change") or 0) > 0: score += 20
     if (d.get("nk_change") or 0) > 0: score += 20
     
-    # リスク指標による条件加点
     if vix_p >= 20:
         if (d.get("vix_price") or 0) > (d.get("vxf_price") or 0): score += 30
         if (d.get("vix_change") or 0) <= -5: score += 25
@@ -223,15 +220,17 @@ def build_message(d):
         
     scaled = min(max(int(score / max_s * 100), 0), 100)
     
+    # メッセージ構成の順序変更
     msg = [
         f"【{datetime.now().strftime('%Y.%m.%d')} {mode}】",
         f"📅 データ日：{d.get('data_date')}\n",
-        "▼ 主要指数先物",
+        "▼ 投資家心理 (FGI)", # ★最上段へ移動
+        f"{get_fgi_detail(d.get('fgi_score'), d.get('fgi_prev'))}\n",
+        "▼ 主要指数先物", # ★次に配置
         f"・米 NQ100 : {fmt_p(d.get('nq_price'), d.get('nq_change'))}",
         f"・米 S&P500: {fmt_p(d.get('es_price'), d.get('es_change'))}",
-        f"・日経平均  : {fmt_p(d.get('nk_price'), d.get('nk_change'))}\n",
-        "▼ 投資家心理 (FGI)",
-        f"{get_fgi_detail(d.get('fgi_score'), d.get('fgi_prev'))}\n",
+        f"・日経平均  : {fmt_p(d.get('nk_price'), d.get('nk_change'))}",
+        f" 💡 {get_equity_relative_comment(d.get('nk_change'), d.get('nq_change'), d.get('es_change'))}\n", # ★ここに統合
         "▼ リスク指標",
         f"VIX現物: {fmt_p(d.get('vix_price'), d.get('vix_change'))}",
         f"VIX先物: {fmt_p(d.get('vxf_price'), d.get('vxf_change'))}",
@@ -249,8 +248,6 @@ def build_message(d):
         "▼ 暗号資産 (Crypto)",
         f"・BTC : ${fmt_p(d.get('btc_price'), d.get('btc_change'), 0)}",
         f" 💡 {get_btc_comment(d.get('btc_change'))}\n",
-        "▼ 日米相対強弱",
-        get_equity_relative_comment(d.get("nk_change"), d.get("nq_change"), d.get("es_change")) + "\n",
         f"⚖️ スコア評価：{scaled}点 / 100",
         f"{get_score_comment(scaled)}\n",
         "--------------------------",
