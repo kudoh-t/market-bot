@@ -19,9 +19,10 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        # Geminiとの通信に必要な google-generativeai を追加しました
+        run: pip install requests beautifulsoup4 google-generativeai
 
-      # --- ここに追加します ---
+      # --- キャッシュ設定 ---
       - name: Cache Market Data
         uses: actions/cache@v3
         with:
@@ -34,6 +35,7 @@ jobs:
 
       - name: Run script
         env:
+          # GitHub Secretsから各キーを読み込み、Pythonプログラムに渡します
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
