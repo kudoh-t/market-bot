@@ -2,6 +2,6 @@ requests
 beautifulsoup4
 pandas
 lxml
-google-generativeai
+google-genai
 python-dotenv
 tenacity
