@@ -5,7 +5,7 @@ import pickle
 from datetime import datetime, timezone, timedelta
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
-#
+# update FI& VIX Geimin's view
 # ============================
 # 設定：環境変数
 # ============================
