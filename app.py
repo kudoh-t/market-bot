@@ -1,10 +1,11 @@
-import requests
-import json
 import os
+import json
 import pickle
 from datetime import datetime, timezone, timedelta
+
+import requests
 from bs4 import BeautifulSoup
-import google.generativeai as genai
+import google.genai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ============================
@@ -13,12 +14,15 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 CACHE_FILE = "market_cache.pkl"
 GEMINI_CACHE_FILE = "gemini_cache.pkl"
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    ai_model = genai.GenerativeModel("gemini-2.0-flash")
+# ============================
+# Gemini クライアント
+# ============================
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+GEMINI_MODEL = "gemini-2.0-flash"
 
 # ============================
 # キャッシュ関連
@@ -56,7 +60,7 @@ def save_gemini_cache(text: str):
         print(f"Geminiキャッシュ保存エラー: {e}")
 
 # ============================
-# ユーティリティ・送信
+# LINE送信
 # ============================
 def send_line(text: str):
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
@@ -80,20 +84,17 @@ def send_line(text: str):
 def get_fgi_detail(now_val, prev_val):
     if now_val is None:
         return "⚠️FGI取得失敗"
-    status = (
-        "極度の恐怖"
-        if now_val <= 25
-        else "恐怖"
-        if now_val <= 45
-        else "中立"
-        if now_val <= 55
-        else "強欲"
-        if now_val <= 75
-        else "極度の強欲"
-    )
-    change = (
-        f"（前日比：{now_val - prev_val:+.0f}pt）" if prev_val is not None else ""
-    )
+    if now_val <= 25:
+        status = "極度の恐怖"
+    elif now_val <= 45:
+        status = "恐怖"
+    elif now_val <= 55:
+        status = "中立"
+    elif now_val <= 75:
+        status = "強欲"
+    else:
+        status = "極度の強欲"
+    change = f"（前日比：{now_val - prev_val:+.0f}pt）" if prev_val is not None else ""
     return f"【{status}】 指数: {now_val} {change}"
 
 def get_vix_analysis(v_spot, v_fut):
@@ -266,6 +267,11 @@ def get_market_data():
     ]:
         fill_with_prev(d, prev, f"{key}_p", f"{key}_c")
 
+    # それでも VIX先物が None なら現物で代用
+    if d.get("vxf_p") is None and d.get("vix_p") is not None:
+        d["vxf_p"] = d["vix_p"]
+        d["vxf_c"] = 0.0
+
     # スプレッド
     d["spread"] = (
         (d.get("u10_p") - d.get("u2_p"))
@@ -316,7 +322,6 @@ def build_message(d):
         score += 20
 
     scaled = min(max(int(score / max_score * 100), 0), 100)
-    # 戦時モードで完全0点は違和感があるので最低10点を保証
     if vix_p >= 20 and scaled == 0:
         scaled = 10
 
@@ -339,9 +344,11 @@ def build_message(d):
         "▼ 4. 金利・イールド",
         f" ・米10年債: {fmt(d.get('u10_p'), d.get('u10_c'))}",
         f" ・米 2年債: {fmt(d.get('u2_p'), d.get('u2_c'))}",
-        f" ・利回り差: {d.get('spread'):.3f}"
-        if d.get("spread") is not None
-        else " ・利回り差: 失敗",
+        (
+            f" ・利回り差: {d.get('spread'):.3f}"
+            if d.get("spread") is not None
+            else " ・利回り差: 失敗"
+        ),
         f" 💡 {get_yield_detail(d.get('spread'))}\n",
         "▼ 5. 商品 (Commodities)",
         f" ・金 (Gold): {fmt(d.get('gold_p'), d.get('gold_c'), 1)}",
@@ -358,11 +365,11 @@ def build_message(d):
     return "\n".join(msg)
 
 # ============================
-# Gemini連携（最終安定版）
+# Gemini連携（google.genai版）
 # ============================
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=3))
-def fetch_gemini(report):
-    if not GEMINI_API_KEY:
+def fetch_gemini(report: str) -> str:
+    if not GEMINI_API_KEY or client is None:
         return "AI評価未設定"
 
     short = report[:600]
@@ -371,15 +378,14 @@ def fetch_gemini(report):
         f"{short}"
     )
 
-    res = ai_model.generate_content(prompt)
-    if not res or not hasattr(res, "text") or not res.text:
-        raise Exception("Empty Gemini response")
-
-    text = res.text.strip()
+    res = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+    )
+    text = res.text()
     if not text:
         raise Exception("Gemini returned empty text")
-
-    return text
+    return text.strip()
 
 # ============================
 # メイン
@@ -389,7 +395,7 @@ def main():
     report = build_message(data)
     print("Gemini解析中...")
 
-    if GEMINI_API_KEY:
+    if GEMINI_API_KEY and client is not None:
         try:
             feedback = fetch_gemini(report)
             save_gemini_cache(feedback)
