@@ -174,27 +174,38 @@ def fetch_fgi_raw():
         return None, None
 
 def fetch_vix_future_raw():
-    try:
-        url = "https://www.investing.com/indices/volatility-s-p-500-futures"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        html = requests.get(url, headers=headers, timeout=1).text
-        soup = BeautifulSoup(html, "html.parser")
+    # 3段階フェイルオーバー：Investing(3URL) → Yahoo VX=F → 失敗
+    urls = [
+        "https://www.investing.com/indices/volatility-s-p-500-futures",
+        "https://www.investing.com/indices/volatility-s-p-500-futures?cid=44336",
+        "https://www.investing.com/indices/volatility-s-p-500-futures?cid=44337",
+    ]
+    headers = {"User-Agent": "Mozilla/5.0"}
 
-        price_el = soup.select_one("div[data-test='instrument-price-last']")
-        change_el = soup.select_one(
-            "span[data-test='instrument-price-change-percent']"
-        )
-        if not price_el or not change_el:
-            return None, None
+    for url in urls:
+        try:
+            html = requests.get(url, headers=headers, timeout=2).text
+            soup = BeautifulSoup(html, "html.parser")
+            price_el = soup.select_one("div[data-test='instrument-price-last']")
+            change_el = soup.select_one(
+                "span[data-test='instrument-price-change-percent']"
+            )
+            if price_el and change_el:
+                price = float(price_el.text.replace(",", ""))
+                change_text = (
+                    change_el.text.replace("%", "").replace("+", "").replace("−", "-")
+                )
+                change = float(change_text)
+                return price, change
+        except Exception:
+            continue
 
-        price = float(price_el.text.replace(",", ""))
-        change_text = (
-            change_el.text.replace("%", "").replace("+", "").replace("−", "-")
-        )
-        change = float(change_text)
-        return price, change
-    except Exception:
-        return None, None
+    # Investing が全滅なら Yahoo VX=F を試す
+    p, c = fetch_yahoo("VX=F")
+    if p is not None:
+        return p, c
+
+    return None, None
 
 def fill_with_prev(d, prev, key_price, key_change):
     if d.get(key_price) is None and prev.get(key_price) is not None:
@@ -215,7 +226,7 @@ def get_market_data():
     # VIX現物
     d["vix_p"], d["vix_c"] = fetch_yahoo("%5EVIX")
 
-    # VIX先物（取得失敗時は前回値で補完）
+    # VIX先物（3段階フェイルオーバー）
     d["vxf_p"], d["vxf_c"] = fetch_vix_future_raw()
 
     targets = {
@@ -231,7 +242,7 @@ def get_market_data():
     for k, s in targets.items():
         d[f"{k}_p"], d[f"{k}_c"] = fetch_yahoo(s)
 
-    # 2年債
+    # 2年債（複数候補）
     d["u2_p"], d["u2_c"] = None, None
     for s in ["2Y=F", "^IRX", "^ZYY"]:
         p, c = fetch_yahoo(s)
@@ -305,6 +316,9 @@ def build_message(d):
         score += 20
 
     scaled = min(max(int(score / max_score * 100), 0), 100)
+    # 戦時モードで完全0点は違和感があるので最低10点を保証
+    if vix_p >= 20 and scaled == 0:
+        scaled = 10
 
     def fmt(p, c, dec=2):
         return f"{p:.{dec}f}（{c:+.2f}%）" if p is not None else "取得失敗"
@@ -344,7 +358,7 @@ def build_message(d):
     return "\n".join(msg)
 
 # ============================
-# Gemini連携
+# Gemini連携（最終安定版）
 # ============================
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=3))
 def fetch_gemini(report):
@@ -380,7 +394,7 @@ def main():
             feedback = fetch_gemini(report)
             save_gemini_cache(feedback)
         except Exception as e:
-            print(f"Geminiエラー: {e}")
+            print(f"Geminiエラー詳細: {repr(e)}")
             prev_fb = load_prev_gemini()
             feedback = f"⚠️Gemini Quota/接続制限中。前回コメントを表示します。\n{prev_fb}"
     else:
