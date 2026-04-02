@@ -5,24 +5,14 @@ from datetime import datetime, timezone, timedelta
 
 import requests
 from bs4 import BeautifulSoup
-import google.genai as genai
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ============================
 # 設定：環境変数
 # ============================
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 CACHE_FILE = "market_cache.pkl"
-GEMINI_CACHE_FILE = "gemini_cache.pkl"
-
-# ============================
-# Gemini クライアント
-# ============================
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-GEMINI_MODEL = "gemini-2.0-flash"
 
 # ============================
 # キャッシュ関連
@@ -43,28 +33,12 @@ def save_data_cache(d):
     except Exception as e:
         print(f"キャッシュ保存エラー: {e}")
 
-def load_prev_gemini():
-    if os.path.exists(GEMINI_CACHE_FILE):
-        try:
-            with open(GEMINI_CACHE_FILE, "rb") as f:
-                return pickle.load(f)
-        except Exception:
-            return "前回のAI評価取得失敗"
-    return "前回のAI評価なし"
-
-def save_gemini_cache(text: str):
-    try:
-        with open(GEMINI_CACHE_FILE, "wb") as f:
-            pickle.dump(text, f)
-    except Exception as e:
-        print(f"Geminiキャッシュ保存エラー: {e}")
-
 # ============================
 # LINE送信
 # ============================
 def send_line(text: str):
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
-        print("LINE設定がありません。標準出力します:\n", text)
+        print("LINE設定なし。標準出力:\n", text)
         return
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
@@ -154,9 +128,7 @@ def get_equity_relative_comment(nk_c, nq_c, es_c):
 def fetch_yahoo(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        res = requests.get(
-            url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10
-        ).json()
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
         m = res["chart"]["result"][0]["meta"]
         p = m["regularMarketPrice"]
         c = (p - m["chartPreviousClose"]) / m["chartPreviousClose"] * 100
@@ -175,7 +147,6 @@ def fetch_fgi_raw():
         return None, None
 
 def fetch_vix_future_raw():
-    # 3段階フェイルオーバー：Investing(3URL) → Yahoo VX=F → 失敗
     urls = [
         "https://www.investing.com/indices/volatility-s-p-500-futures",
         "https://www.investing.com/indices/volatility-s-p-500-futures?cid=44336",
@@ -188,20 +159,14 @@ def fetch_vix_future_raw():
             html = requests.get(url, headers=headers, timeout=2).text
             soup = BeautifulSoup(html, "html.parser")
             price_el = soup.select_one("div[data-test='instrument-price-last']")
-            change_el = soup.select_one(
-                "span[data-test='instrument-price-change-percent']"
-            )
+            change_el = soup.select_one("span[data-test='instrument-price-change-percent']")
             if price_el and change_el:
                 price = float(price_el.text.replace(",", ""))
-                change_text = (
-                    change_el.text.replace("%", "").replace("+", "").replace("−", "-")
-                )
-                change = float(change_text)
+                change = float(change_el.text.replace("%", "").replace("+", "").replace("−", "-"))
                 return price, change
         except Exception:
             continue
 
-    # Investing が全滅なら Yahoo VX=F を試す
     p, c = fetch_yahoo("VX=F")
     if p is not None:
         return p, c
@@ -217,17 +182,13 @@ def get_market_data():
     d = {}
     prev = load_prev_data()
 
-    # FGI（取得失敗時は前回値で補完）
     fgi_now, fgi_prev = fetch_fgi_raw()
     if fgi_now is None:
         fgi_now = prev.get("fgi_score")
         fgi_prev = prev.get("fgi_prev")
     d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
-    # VIX現物
     d["vix_p"], d["vix_c"] = fetch_yahoo("%5EVIX")
-
-    # VIX先物（3段階フェイルオーバー）
     d["vxf_p"], d["vxf_c"] = fetch_vix_future_raw()
 
     targets = {
@@ -243,7 +204,6 @@ def get_market_data():
     for k, s in targets.items():
         d[f"{k}_p"], d[f"{k}_c"] = fetch_yahoo(s)
 
-    # 2年債（複数候補）
     d["u2_p"], d["u2_c"] = None, None
     for s in ["2Y=F", "^IRX", "^ZYY"]:
         p, c = fetch_yahoo(s)
@@ -251,28 +211,13 @@ def get_market_data():
             d["u2_p"], d["u2_c"] = p, c
             break
 
-    # 欠損を前回値で補完（VIX先物含む）
-    for key in [
-        "vix",
-        "vxf",
-        "nq",
-        "es",
-        "nk",
-        "gold",
-        "wti",
-        "cop",
-        "u10",
-        "u2",
-        "btc",
-    ]:
+    for key in ["vix", "vxf", "nq", "es", "nk", "gold", "wti", "cop", "u10", "u2", "btc"]:
         fill_with_prev(d, prev, f"{key}_p", f"{key}_c")
 
-    # それでも VIX先物が None なら現物で代用
     if d.get("vxf_p") is None and d.get("vix_p") is not None:
         d["vxf_p"] = d["vix_p"]
         d["vxf_c"] = 0.0
 
-    # スプレッド
     d["spread"] = (
         (d.get("u10_p") - d.get("u2_p"))
         if d.get("u10_p") is not None and d.get("u2_p") is not None
@@ -283,6 +228,20 @@ def get_market_data():
 
     save_data_cache(d)
     return d
+
+# ============================
+# Copilot ローカル評価
+# ============================
+def copilot_comment(report: str) -> str:
+    text = report.lower()
+
+    if "恐怖" in text or ("vix" in text and "20" in text):
+        return "市場は警戒感が強く、リスク回避姿勢が続く状況です。"
+
+    if "強欲" in text or "上昇" in text:
+        return "投資家心理は改善傾向で、リスク選好が戻りつつあります。"
+
+    return "市場は方向感に乏しく、慎重姿勢が続いています。"
 
 # ============================
 # メッセージ構築
@@ -312,9 +271,8 @@ def build_message(d):
         score += 20
 
     if vix_p >= 20:
-        if d.get("vix_p") is not None and d.get("vxf_p") is not None:
-            if d["vix_p"] > d["vxf_p"]:
-                score += 30
+        if d.get("vix_p") > d.get("vxf_p"):
+            score += 30
         if (d.get("spread") or 0) < 0:
             score += 20
 
@@ -365,48 +323,15 @@ def build_message(d):
     return "\n".join(msg)
 
 # ============================
-# Gemini連携（google.genai版）
-# ============================
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=3))
-def fetch_gemini(report: str) -> str:
-    if not GEMINI_API_KEY or client is None:
-        return "AI評価未設定"
-
-    short = report[:600]
-    prompt = (
-        "以下の市場データを基に、全体のリスク環境を30〜50文字で短評してください。\n"
-        f"{short}"
-    )
-
-    res = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-    )
-    text = res.text()
-    if not text:
-        raise Exception("Gemini returned empty text")
-    return text.strip()
-
-# ============================
 # メイン
 # ============================
 def main():
     data = get_market_data()
     report = build_message(data)
-    print("Gemini解析中...")
 
-    if GEMINI_API_KEY and client is not None:
-        try:
-            feedback = fetch_gemini(report)
-            save_gemini_cache(feedback)
-        except Exception as e:
-            print(f"Geminiエラー詳細: {repr(e)}")
-            prev_fb = load_prev_gemini()
-            feedback = f"⚠️Gemini Quota/接続制限中。前回コメントを表示します。\n{prev_fb}"
-    else:
-        feedback = "AI評価未設定"
+    feedback = copilot_comment(report)
 
-    send_line(f"{report}\n\n--- 🤖 Gemini's View ---\n{feedback}")
+    send_line(f"{report}\n\n--- 🤖 Copilot's View ---\n{feedback}")
 
 if __name__ == "__main__":
     main()
