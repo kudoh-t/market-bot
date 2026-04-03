@@ -74,8 +74,30 @@ def get_fgi_detail(now_val, prev_val):
 def get_vix_analysis(v_spot, v_fut):
     if v_spot is None:
         return "⚠️VIXデータ欠損"
+
+    # ① VIX先物が欠損：現物だけで判断
     if v_fut is None:
-        return "⚠️VIX先物データ欠損"
+        if v_spot >= 30:
+            return "⚠️先物欠損：VIXは非常に高く、市場は強い警戒状態です。"
+        elif v_spot >= 25:
+            return "⚠️先物欠損：VIXは高水準で、警戒感が強い状況です。"
+        elif v_spot >= 20:
+            return "⚠️先物欠損：VIXはやや高く、慎重姿勢が続いています。"
+        else:
+            return "⚠️先物欠損：VIXは低めで、市場は落ち着きつつあります。"
+
+    # ② 先物が現物とほぼ一致（代用の可能性）
+    if abs(v_spot - v_fut) < 0.01:
+        if v_spot >= 30:
+            return "⚠️先物不明：VIXは非常に高く、市場は強い警戒状態です。"
+        elif v_spot >= 25:
+            return "⚠️先物不明：VIXは高水準で、警戒感が強い状況です。"
+        elif v_spot >= 20:
+            return "⚠️先物不明：VIXはやや高く、慎重姿勢が続いています。"
+        else:
+            return "⚠️先物不明：VIXは低めで、市場は落ち着きつつあります。"
+
+    # ③ 通常ロジック
     diff = v_spot - v_fut
     if diff > 0.5:
         return f"🚨異常(逆転)：現物が先物を{diff:.2f}上回るパニック。反転間近。"
@@ -162,7 +184,9 @@ def fetch_vix_future_raw():
             change_el = soup.select_one("span[data-test='instrument-price-change-percent']")
             if price_el and change_el:
                 price = float(price_el.text.replace(",", ""))
-                change = float(change_el.text.replace("%", "").replace("+", "").replace("−", "-"))
+                change = float(
+                    change_el.text.replace("%", "").replace("+", "").replace("−", "-")
+                )
                 return price, change
         except Exception:
             continue
@@ -182,10 +206,15 @@ def get_market_data():
     d = {}
     prev = load_prev_data()
 
+    # FGI：失敗 → 前回値 → それもなければ中立50
     fgi_now, fgi_prev = fetch_fgi_raw()
     if fgi_now is None:
-        fgi_now = prev.get("fgi_score")
-        fgi_prev = prev.get("fgi_prev")
+        if prev.get("fgi_score") is not None:
+            fgi_now = prev.get("fgi_score")
+            fgi_prev = prev.get("fgi_prev")
+        else:
+            fgi_now = 50
+            fgi_prev = 50
     d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
     d["vix_p"], d["vix_c"] = fetch_yahoo("%5EVIX")
@@ -234,13 +263,10 @@ def get_market_data():
 # ============================
 def copilot_comment(report: str) -> str:
     text = report.lower()
-
-    if "恐怖" in text or ("vix" in text and "20" in text):
+    if "極度の恐怖" in report or "vix現物" in report and "20" in report:
         return "市場は警戒感が強く、リスク回避姿勢が続く状況です。"
-
-    if "強欲" in text or "上昇" in text:
+    if "強欲" in report or "上昇" in report:
         return "投資家心理は改善傾向で、リスク選好が戻りつつあります。"
-
     return "市場は方向感に乏しく、慎重姿勢が続いています。"
 
 # ============================
@@ -250,19 +276,26 @@ def build_message(d):
     prev_data = load_prev_data()
     vix_p = d.get("vix_p") or 0
     prev_vix = prev_data.get("vix_p") or 0
+    fgi = d.get("fgi_score") or 50
 
-    if vix_p >= 20 and prev_vix < 20:
-        mode_title = "⚠️移行モード：警戒開始"
-    elif vix_p < 20 and prev_vix >= 20:
-        mode_title = "🔄移行モード：沈静化の兆し"
-    elif vix_p >= 20:
+    # 戦時/平時/移行モード判定（VIX＋FGI複合）
+    if vix_p >= 25 or fgi <= 20:
         mode_title = "🚨戦時モード：総合反転スコア"
-    else:
+    elif vix_p <= 18 and fgi >= 40:
         mode_title = "🍀平時モード：トレンドスコア"
+    else:
+        # VIXの変化で移行感も少し見る
+        if vix_p >= 20 and prev_vix < 20:
+            mode_title = "⚠️移行モード：警戒開始"
+        elif vix_p < 20 and prev_vix >= 20:
+            mode_title = "🔄移行モード：沈静化の兆し"
+        else:
+            mode_title = "⚠️移行モード：警戒継続"
 
     score = 0
-    max_score = 155 if vix_p >= 20 else 135
+    max_score = 155  # 上限は少し余裕を持たせたまま
 
+    # 株指数
     if (d.get("nq_c") or 0) > 0:
         score += 25
     if (d.get("es_c") or 0) > 0:
@@ -270,18 +303,23 @@ def build_message(d):
     if (d.get("nk_c") or 0) > 0:
         score += 20
 
-    if vix_p >= 20:
-        if d.get("vix_p") > d.get("vxf_p"):
-            score += 30
-        if (d.get("spread") or 0) < 0:
-            score += 20
+    # VIX現物の危険度スコア
+    if vix_p >= 30:
+        score += 25
+    elif vix_p >= 25:
+        score += 15
+    elif vix_p >= 20:
+        score += 5
 
+    # 逆イールド（戦時寄りの要素）
+    if (d.get("spread") is not None) and d["spread"] < 0:
+        score += 20
+
+    # BTCリスクオン
     if (d.get("btc_c") or 0) >= 3:
         score += 20
 
     scaled = min(max(int(score / max_score * 100), 0), 100)
-    if vix_p >= 20 and scaled == 0:
-        scaled = 10
 
     def fmt(p, c, dec=2):
         return f"{p:.{dec}f}（{c:+.2f}%）" if p is not None else "取得失敗"
@@ -328,9 +366,7 @@ def build_message(d):
 def main():
     data = get_market_data()
     report = build_message(data)
-
     feedback = copilot_comment(report)
-
     send_line(f"{report}\n\n--- 🤖 Copilot's View ---\n{feedback}")
 
 if __name__ == "__main__":
