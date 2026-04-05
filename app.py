@@ -7,7 +7,7 @@ from news_engine import (
     classify_news_list,
     calculate_news_mode_score
 )
-from send_line import send_line   # ← send_line が別ファイルなら修正
+#from send_line import send_line   # ← send_line が別ファイルなら修正
 
 def main():
     # ① 市場データ取得
