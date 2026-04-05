@@ -1,12 +1,3 @@
-from market_data import get_market_data
-from message_builder import build_message
-import requests
-import os
-
-# ============================
-# LINE通知
-# ============================
-
 def send_line(message):
     token = os.getenv("LINE_TOKEN")
     if not token:
@@ -17,19 +8,19 @@ def send_line(message):
     headers = {"Authorization": f"Bearer {token}"}
     data = {"message": message}
 
-    try:
-        requests.post(url, headers=headers, data=data, timeout=5)
-    except Exception as e:
-        print(f"LINE送信エラー: {e}")
+    # GitHub Actions の DNS 不安定対策：最大3回リトライ
+    for i in range(3):
+        try:
+            response = requests.post(url, headers=headers, data=data, timeout=10)
+            if response.status_code == 200:
+                print("LINE送信成功")
+                return
+            else:
+                print(f"LINE送信失敗（{i+1}回目）: {response.status_code}")
+        except Exception as e:
+            print(f"LINE送信エラー（{i+1}回目）: {e}")
 
-# ============================
-# メイン処理
-# ============================
+        # 失敗したら3秒待って再試行
+        time.sleep(3)
 
-def main():
-    data = get_market_data()
-    report = build_message(data)
-    send_line(report)
-
-if __name__ == "__main__":
-    main()
+    print("LINE送信に失敗しました（リトライ上限）")
