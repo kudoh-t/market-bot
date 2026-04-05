@@ -99,7 +99,7 @@ def get_market_data():
 
     print("=== get_market_data end ===")
     return data
-
+#
 if __name__ == "__main__":
     # テスト実行
     res = get_market_data()
