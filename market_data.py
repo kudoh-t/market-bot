@@ -73,8 +73,8 @@ def get_news():
 # -----------------------------
 # ★ メイン：データをまとめて取得
 # -----------------------------
-def get_all_market_data():
-    print("=== get_all_market_data start ===")
+def get_market_data():
+    print("=== get_market_data start ===")
 
     data = {
         "date": datetime.datetime.now().strftime("%Y.%m.%d"),
