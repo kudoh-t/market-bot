@@ -142,11 +142,12 @@ def build_message(d):
 
     # --- 9. 総合スコア ---
     section_score = [
-        "▼ 9. 総合スコア",
-        f" ・スコア: {d.get('score', 'N/A')}",
-        f" ・素点: {d.get('raw_score', 'N/A')}",
-        f" ・判定: {d.get('judge', 'N/A')}",
+    "▼ 9. 総合スコア",
+    f" ・スコア: {d.get('score', 'N/A')} / 100",
+    f" ・素点: {d.get('raw_score', 'N/A')} / {d.get('raw_max', 'N/A')}",
+    f" ・判定: {d.get('judge', 'N/A')}",
     ]
+
 
     message = "\n".join(
         section_fgi
