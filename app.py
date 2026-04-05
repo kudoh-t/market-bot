@@ -71,37 +71,18 @@ def get_fgi_detail(now_val, prev_val):
     change = f"（前日比：{now_val - prev_val:+.0f}pt）" if prev_val is not None else ""
     return f"【{status}】 指数: {now_val} {change}"
 
-def get_vix_analysis(v_spot, v_fut):
-    if v_spot is None:
-        return "⚠️VIXデータ欠損"
+def get_vix_analysis(v_spot, v_3m):
+    if v_spot is None or v_3m is None:
+        return "⚠️VIXデータ欠損（比較不能）"
 
-    # ① VIX先物が欠損：現物だけで判断
-    if v_fut is None:
-        if v_spot >= 30:
-            return "⚠️先物欠損：VIXは非常に高く、市場は強い警戒状態です。"
-        elif v_spot >= 25:
-            return "⚠️先物欠損：VIXは高水準で、警戒感が強い状況です。"
-        elif v_spot >= 20:
-            return "⚠️先物欠損：VIXはやや高く、慎重姿勢が続いています。"
-        else:
-            return "⚠️先物欠損：VIXは低めで、市場は落ち着きつつあります。"
-
-    # ② 先物が現物とほぼ一致（代用の可能性）
-    if abs(v_spot - v_fut) < 0.01:
-        if v_spot >= 30:
-            return "⚠️先物不明：VIXは非常に高く、市場は強い警戒状態です。"
-        elif v_spot >= 25:
-            return "⚠️先物不明：VIXは高水準で、警戒感が強い状況です。"
-        elif v_spot >= 20:
-            return "⚠️先物不明：VIXはやや高く、慎重姿勢が続いています。"
-        else:
-            return "⚠️先物不明：VIXは低めで、市場は落ち着きつつあります。"
-
-    # ③ 通常ロジック
-    diff = v_spot - v_fut
-    if diff > 0.5:
-        return f"🚨異常(逆転)：現物が先物を{diff:.2f}上回るパニック。反転間近。"
-    return "✅正常：市場は落ち着いています。"
+    # VIX現物とVIX3Mの比率で市場の緊張度を判定
+    ratio = v_spot / v_3m
+    
+    if ratio >= 1.0:
+        return f"🚨異常(逆転)：比率{ratio:.2f}。現物が3ヶ月先を上回るパニック。反転間近。"
+    elif ratio >= 0.9:
+        return f"⚠️警戒：比率{ratio:.2f}。緊張が高まっています。"
+    return f"✅正常：比率{ratio:.2f}。市場は落ち着いています。"
 
 def get_yield_detail(spread):
     if spread is None:
@@ -168,35 +149,6 @@ def fetch_fgi_raw():
     except Exception:
         return None, None
 
-def fetch_vix_future_raw():
-    urls = [
-        "https://www.investing.com/indices/volatility-s-p-500-futures",
-        "https://www.investing.com/indices/volatility-s-p-500-futures?cid=44336",
-        "https://www.investing.com/indices/volatility-s-p-500-futures?cid=44337",
-    ]
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    for url in urls:
-        try:
-            html = requests.get(url, headers=headers, timeout=2).text
-            soup = BeautifulSoup(html, "html.parser")
-            price_el = soup.select_one("div[data-test='instrument-price-last']")
-            change_el = soup.select_one("span[data-test='instrument-price-change-percent']")
-            if price_el and change_el:
-                price = float(price_el.text.replace(",", ""))
-                change = float(
-                    change_el.text.replace("%", "").replace("+", "").replace("−", "-")
-                )
-                return price, change
-        except Exception:
-            continue
-
-    p, c = fetch_yahoo("VX=F")
-    if p is not None:
-        return p, c
-
-    return None, None
-
 def fill_with_prev(d, prev, key_price, key_change):
     if d.get(key_price) is None and prev.get(key_price) is not None:
         d[key_price] = prev[key_price]
@@ -217,8 +169,9 @@ def get_market_data():
             fgi_prev = 50
     d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
+    # VIX現物と、代替のVIX3Mを取得
     d["vix_p"], d["vix_c"] = fetch_yahoo("%5EVIX")
-    d["vxf_p"], d["vxf_c"] = fetch_vix_future_raw()
+    d["v3m_p"], d["v3m_c"] = fetch_yahoo("%5EVIX3M")
 
     targets = {
         "nq": "NQ=F",
@@ -240,13 +193,11 @@ def get_market_data():
             d["u2_p"], d["u2_c"] = p, c
             break
 
-    for key in ["vix", "vxf", "nq", "es", "nk", "gold", "wti", "cop", "u10", "u2", "btc"]:
+    # キャッシュ補完
+    for key in ["vix", "v3m", "nq", "es", "nk", "gold", "wti", "cop", "u10", "u2", "btc"]:
         fill_with_prev(d, prev, f"{key}_p", f"{key}_c")
 
-    if d.get("vxf_p") is None and d.get("vix_p") is not None:
-        d["vxf_p"] = d["vix_p"]
-        d["vxf_c"] = 0.0
-
+    # 利回り差
     d["spread"] = (
         (d.get("u10_p") - d.get("u2_p"))
         if d.get("u10_p") is not None and d.get("u2_p") is not None
@@ -263,7 +214,7 @@ def get_market_data():
 # ============================
 def copilot_comment(report: str) -> str:
     text = report.lower()
-    if "極度の恐怖" in report or "vix現物" in report and "20" in report:
+    if "極度の恐怖" in report or ("vix現物" in report and "20" in report):
         return "市場は警戒感が強く、リスク回避姿勢が続く状況です。"
     if "強欲" in report or "上昇" in report:
         return "投資家心理は改善傾向で、リスク選好が戻りつつあります。"
@@ -278,13 +229,11 @@ def build_message(d):
     prev_vix = prev_data.get("vix_p") or 0
     fgi = d.get("fgi_score") or 50
 
-    # 戦時/平時/移行モード判定（VIX＋FGI複合）
     if vix_p >= 25 or fgi <= 20:
         mode_title = "🚨戦時モード：総合反転スコア"
     elif vix_p <= 18 and fgi >= 40:
         mode_title = "🍀平時モード：トレンドスコア"
     else:
-        # VIXの変化で移行感も少し見る
         if vix_p >= 20 and prev_vix < 20:
             mode_title = "⚠️移行モード：警戒開始"
         elif vix_p < 20 and prev_vix >= 20:
@@ -293,31 +242,18 @@ def build_message(d):
             mode_title = "⚠️移行モード：警戒継続"
 
     score = 0
-    max_score = 155  # 上限は少し余裕を持たせたまま
+    max_score = 155
 
-    # 株指数
-    if (d.get("nq_c") or 0) > 0:
-        score += 25
-    if (d.get("es_c") or 0) > 0:
-        score += 20
-    if (d.get("nk_c") or 0) > 0:
-        score += 20
+    if (d.get("nq_c") or 0) > 0: score += 25
+    if (d.get("es_c") or 0) > 0: score += 20
+    if (d.get("nk_c") or 0) > 0: score += 20
 
-    # VIX現物の危険度スコア
-    if vix_p >= 30:
-        score += 25
-    elif vix_p >= 25:
-        score += 15
-    elif vix_p >= 20:
-        score += 5
+    if vix_p >= 30: score += 25
+    elif vix_p >= 25: score += 15
+    elif vix_p >= 20: score += 5
 
-    # 逆イールド（戦時寄りの要素）
-    if (d.get("spread") is not None) and d["spread"] < 0:
-        score += 20
-
-    # BTCリスクオン
-    if (d.get("btc_c") or 0) >= 3:
-        score += 20
+    if (d.get("spread") is not None) and d["spread"] < 0: score += 20
+    if (d.get("btc_c") or 0) >= 3: score += 20
 
     scaled = min(max(int(score / max_score * 100), 0), 100)
 
@@ -333,18 +269,14 @@ def build_message(d):
         f" ・米 S&P500: {fmt(d.get('es_p'), d.get('es_c'))}",
         f" ・日経平均 : {fmt(d.get('nk_p'), d.get('nk_c'))}",
         f" 💡 {get_equity_relative_comment(d.get('nk_c'), d.get('nq_c'), d.get('es_c'))}\n",
-        "▼ 3. リスク指標 (VIX)",
+        "▼ 3. リスク指標 (VIX/VIX3M)",
         f" ・VIX現物: {fmt(d.get('vix_p'), d.get('vix_c'))}",
-        f" ・VIX先物: {fmt(d.get('vxf_p'), d.get('vxf_c'))}",
-        f" 💡 {get_vix_analysis(d.get('vix_p'), d.get('vxf_p'))}\n",
+        f" ・VIX 3M : {fmt(d.get('v3m_p'), d.get('v3m_c'))}",
+        f" 💡 {get_vix_analysis(d.get('vix_p'), d.get('v3m_p'))}\n",
         "▼ 4. 金利・イールド",
         f" ・米10年債: {fmt(d.get('u10_p'), d.get('u10_c'))}",
         f" ・米 2年債: {fmt(d.get('u2_p'), d.get('u2_c'))}",
-        (
-            f" ・利回り差: {d.get('spread'):.3f}"
-            if d.get("spread") is not None
-            else " ・利回り差: 失敗"
-        ),
+        (f" ・利回り差: {d.get('spread'):.3f}" if d.get("spread") is not None else " ・利回り差: 失敗"),
         f" 💡 {get_yield_detail(d.get('spread'))}\n",
         "▼ 5. 商品 (Commodities)",
         f" ・金 (Gold): {fmt(d.get('gold_p'), d.get('gold_c'), 1)}",
