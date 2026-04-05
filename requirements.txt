@@ -1,8 +1,4 @@
 requests
+openai>=1.0.0
 beautifulsoup4
-pandas
 lxml
-google-genai
-python-dotenv
-tenacity
-feedparser
