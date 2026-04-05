@@ -1,125 +1,107 @@
-import requests
-from bs4 import BeautifulSoup
-import datetime
 import yfinance as yf
-import re
+import requests
+import pandas as pd
+from datetime import datetime
 
+# ============================
+# 基本設定
+# ============================
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-# -----------------------------
-# 1. Fear & Greed Index (CNN) - 取得を試みるが失敗しても無視する
-# -----------------------------
-def get_fgi():
+# ============================
+# Yahoo Financeデータ取得関数
+# ============================
+def get_yf_data(ticker, period="5d"):
+    """
+    (直近価格, 騰落率) のタプルを返す
+    """
     try:
-        url = "https://www.cnn.com/markets/fear-and-greed"
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, "html.parser")
-        
-        score_tag = soup.find("span", {"class": "market-fng-gauge__dial-number-value"})
-        if score_tag and score_tag.text.strip().isdigit():
-            return int(score_tag.text.strip()), None
-        
-        # 予備：テキストから数字を探す
-        match = re.search(r'"score":(\d+)', res.text)
-        if match:
-            return int(match.group(1)), None
-            
-        return None, None
-    except Exception as e:
-        print(f"FGI取得スキップ（取得不可）: {e}")
-        return None, None
-
-# -----------------------------
-# 2-6. 汎用データ取得 (Yahoo Finance)
-# -----------------------------
-def get_yf_data(ticker):
-    try:
-        symbol = yf.Ticker(ticker)
-        # 5日分取得して確実に最新データを確保
-        hist = symbol.history(period="5d")
-        
-        if hist.empty or len(hist) < 1:
-            print(f"Warning: {ticker} のデータが空です")
+        df = yf.download(ticker, period=period, interval="1d", progress=False)
+        if df.empty or len(df) < 2:
             return None, None
         
-        current_price = hist['Close'].iloc[-1]
-        
-        if len(hist) >= 2:
-            prev_close = hist['Close'].iloc[-2]
-            change_pct = ((current_price - prev_close) / prev_close) * 100
+        # 終値系列を取得（DataFrameでもSeriesでも対応できるように）
+        if 'Close' in df.columns:
+            close_series = df['Close']
+            if isinstance(close_series, pd.DataFrame):
+                close_series = close_series.iloc[:, 0]
         else:
-            change_pct = 0.0
+            return None, None
+            
+        last_price = float(close_series.iloc[-1])
+        prev_price = float(close_series.iloc[-2])
+        change_pct = ((last_price - prev_price) / prev_price) * 100
         
-        return round(current_price, 2), round(change_pct, 2)
+        return last_price, change_pct
     except Exception as e:
-        print(f"Ticker {ticker} 取得エラー: {e}")
+        print(f"yfinance取得エラー ({ticker}): {e}")
         return None, None
 
-# -----------------------------
-# 7. ニュース（Yahoo Topics）
-# -----------------------------
-def get_news():
+# ============================
+# Fear & Greed Index 取得関数（API方式）
+# ============================
+def get_fgi():
+    """
+    CNNの内部APIから現在のスコアと前日終値を直接取得
+    """
     try:
-        url = "https://news.yahoo.co.jp/topics/top-picks"
+        # WebスクレイピングではなくAPIを叩くことで安定化
+        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        news_list = []
-        topics = soup.select("li a")
-        for t in topics:
-            title = t.text.replace("写真", "").strip()
-            if title and len(news_list) < 10:
-                news_list.append(title)
-        return news_list
-    except Exception:
-        return []
+        res.raise_for_status()
+        data = res.json()
+        
+        current_score = int(data['fear_and_greed']['score'])
+        previous_close = int(data['fear_and_greed']['previous_close'])
+        
+        return current_score, previous_close
+    except Exception as e:
+        print(f"FGI API取得エラー: {e}")
+        return None, None
 
-# -----------------------------
-# ★ メイン：エラーが起きても辞書を最後まで完成させる
-# -----------------------------
+# ============================
+# メイン：市場データ一括取得
+# ============================
 def get_market_data():
     print("=== get_market_data start ===")
+    data = {}
     
-    # 全項目をNoneで初期化しておく
-    data = {
-        "date": datetime.datetime.now().strftime("%Y.%m.%d"),
-        "fgi": None, "fgi_prev": None,
-        "nq": (None, None), "spx": (None, None), "nky": (None, None),
-        "vix": (None, None),
-        "us10y": (None, None), "us2y": (None, None), "yield_spread": None,
-        "gold": (None, None), "wti": (None, None), "copper": (None, None),
-        "btc": (None, None),
-        "news": []
-    }
+    # 取得日時
+    data["date"] = datetime.now().strftime("%Y.%m.%d")
 
-    # 1. FGI
-    data["fgi"], _ = get_fgi()
+    # 1. 投資家心理 (FGI)
+    fgi_now, fgi_prev = get_fgi()
+    data["fgi"] = fgi_now
+    data["fgi_prev"] = fgi_prev
 
-    # 2. 指数
-    data["nq"] = get_yf_data("^NDX")
-    data["spx"] = get_yf_data("^GSPC")
-    data["nky"] = get_yf_data("^N225")
+    # 2. 主要指数
+    data["nq"] = get_yf_data("NQ=F")    # ナスダック100先物
+    data["spx"] = get_yf_data("ES=F")   # S&P500先物
+    data["nky"] = get_yf_data("NIY=F")  # 日経平均先物
 
-    # 3. VIX
-    data["vix"] = get_yf_data("^VIX")
+    # 3. リスク指標 (VIX)
+    data["vix"] = get_yf_data("^VIX")   # VIX現物
+    data["vix_f"] = get_yf_data("VX=F") # VIX先物
 
     # 4. 金利
-    data["us10y"] = get_yf_data("^TNX")
-    data["us2y"] = get_yf_data("^IRX")
-    if data["us10y"][0] and data["us2y"][0]:
-        data["yield_spread"] = round(data["us10y"][0] - data["us2y"][0], 3)
+    data["us10y"] = get_yf_data("^TNX") # 米10年債
+    data["us2y"] = get_yf_data("^IRX")  # 米2年債（13週短期国債利回り等で代用）
+    
+    # 利回り差計算
+    if data["us10y"][0] is not None and data["us2y"][0] is not None:
+        data["yield_spread"] = data["us10y"][0] - data["us2y"][0]
+    else:
+        data["yield_spread"] = None
 
-    # 5. コモディティ
-    data["gold"] = get_yf_data("GC=F")
-    data["wti"] = get_yf_data("CL=F")
-    data["copper"] = get_yf_data("HG=F")
+    # 5. 商品
+    data["gold"] = get_yf_data("GC=F")   # 金
+    data["wti"] = get_yf_data("CL=F")    # 原油
+    data["copper"] = get_yf_data("HG=F") # 銅
 
-    # 6. BTC
+    # 6. 仮想通貨
     data["btc"] = get_yf_data("BTC-USD")
-
-    # 7. ニュース
-    data["news"] = get_news()
 
     print("=== get_market_data end ===")
     return data
