@@ -157,6 +157,6 @@ def build_message(d):
     msg.append("--------------------------")
     msg.append("--- 🤖 Copilot's View ---")
     msg.append(generate_copilot_view(mode, classified))
-
+#
     save_prev_data(d)
     return "\n".join(msg)
