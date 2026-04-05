@@ -36,3 +36,29 @@ def send_line(message):
         time.sleep(3)
 
     print("LINE送信に失敗しました（リトライ上限）")
+from market_data import get_market_data
+from news_engine import get_news, classify_news
+from analysis import analyze_market
+from message_builder import build_message
+
+def main():
+    # ① 市場データ取得
+    market = get_market_data()
+
+    # ② ニュース取得
+    news_list = get_news()
+
+    # ③ ニュース分類
+    classified = classify_news(news_list)
+
+    # ④ 市場分析
+    analysis_result = analyze_market(market, classified)
+
+    # ⑤ LINE に送る文章を組み立て
+    report = build_message(market, classified, analysis_result)
+
+    # ⑥ LINE 送信
+    send_line(report)
+
+if __name__ == "__main__":
+    main()
