@@ -1,184 +1,130 @@
 import requests
 from bs4 import BeautifulSoup
 import datetime
-import json
+import yfinance as yf
 
-headers = {"User-Agent": "Mozilla/5.0"}
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
 # -----------------------------
 # 1. Fear & Greed Index (CNN)
 # -----------------------------
 def get_fgi():
+    """CNNのサイトからF&G Indexを取得（構造変更に弱いため注意）"""
     try:
-        url = "https://money.cnn.com/data/fear-and-greed/"
+        url = "https://www.cnn.com/markets/fear-and-greed"
         res = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
-
-        score = soup.find("div", {"id": "needleChart"}).get("data-fng-index")
-        prev = soup.find("div", {"id": "needleChart"}).get("data-fng-previous")
-
-        return int(score), int(prev)
-    except:
+        
+        # 最新のCNNのクラス名や構造に合わせて取得
+        # ※CNNは頻繁に構造が変わるため、取得できない場合はNoneを返す
+        score_tag = soup.find("span", {"class": "market-fng-gauge__dial-number-value"})
+        if score_tag:
+            return int(score_tag.text), None
+        return None, None
+    except Exception as e:
+        print(f"FGI取得エラー: {e}")
         return None, None
 
-
 # -----------------------------
-# 2. 指数（Investing.com）
+# 2-6. 汎用データ取得 (Yahoo Finance)
 # -----------------------------
-def investing_get(pair_id):
+def get_yf_data(ticker):
+    """Yahoo Financeから価格と前日比(%)を取得"""
     try:
-        url = f"https://api.investing.com/api/financialdata/{pair_id}/historical/chart/"
-        res = requests.get(url, headers=headers, timeout=10)
-        js = res.json()
-
-        price = js["data"][-1]["last_close"]
-        change = js["data"][-1]["change_percent"]
-
-        return price, change
-    except:
+        data = yf.Ticker(ticker)
+        # fast_info または historyを使用して最新値を取得
+        hist = data.history(period="2d")
+        if len(hist) < 2:
+            # 休日などでデータが足りない場合は直近1日分
+            price = hist['Close'].iloc[-1]
+            return round(price, 2), 0.0
+        
+        prev_close = hist['Close'].iloc[-2]
+        current_price = hist['Close'].iloc[-1]
+        change_pct = ((current_price - prev_close) / prev_close) * 100
+        
+        return round(current_price, 2), round(change_pct, 2)
+    except Exception as e:
+        print(f"Ticker {ticker} 取得エラー: {e}")
         return None, None
 
-
 # -----------------------------
-# 3. CNBC 汎用取得（VIX・金利）
-# -----------------------------
-def cnbc_get(url):
-    try:
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-
-        price_tag = soup.find("span", {"class": "QuoteStrip-lastPrice"})
-        if not price_tag:
-            return None, None
-        price = float(price_tag.text.replace(",", "").replace("$", ""))
-
-        change_tag = (
-            soup.find("span", {"class": "QuoteStrip-changePct"}) or
-            soup.find("span", {"data-field": "changePct"}) or
-            soup.find("span", {"class": "QuoteStrip-change"}) or
-            soup.find("span", {"data-field": "change"})
-        )
-
-        if not change_tag:
-            return price, 0.0
-
-        change_text = change_tag.text.replace("%", "").replace("+", "").replace("−", "-")
-        change_percent = float(change_text)
-
-        return price, change_percent
-    except:
-        return None, None
-
-
-# -----------------------------
-# 4. TradingView 汎用取得（Gold, WTI, Copper, BTC）
-# -----------------------------
-def tv_get(symbol):
-    try:
-        url = f"https://api.tradingview.com/symbols/{symbol}/"
-        res = requests.get(url, headers=headers, timeout=10)
-        js = res.json()
-
-        price = js["lp"]
-        change = js["chp"]
-        return price, change
-    except:
-        return None, None
-
-
-# -----------------------------
-# 7. ニュース（Yahooカテゴリ別）
+# 7. ニュース（Yahoo Topics）
 # -----------------------------
 def get_news():
     try:
-        url = "https://news.yahoo.co.jp/topics"
+        url = "https://news.yahoo.co.jp/topics/top-picks"
         res = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
-        topics = soup.find_all("a", {"class": "sc-dRFtgE"})
+        # クラス名は変わることがあるため、aタグの構造から取得
         news_list = []
-
-        for t in topics[:10]:
-            title = t.text.strip()
-            news_list.append(title)
+        topics = soup.select("li a")
+        for t in topics:
+            title = t.text.replace("写真", "").strip()
+            if title and len(news_list) < 10:
+                news_list.append(title)
 
         return news_list
-    except:
+    except Exception as e:
+        print(f"ニュース取得エラー: {e}")
         return []
 
-
 # -----------------------------
-# ★ メイン：1〜7 をまとめて取得
+# ★ メイン：データをまとめて取得
 # -----------------------------
 def get_all_market_data():
     print("=== get_all_market_data start ===")
 
     data = {
         "date": datetime.datetime.now().strftime("%Y.%m.%d"),
-
-        # 1. FGI
         "fgi": None,
-        "fgi_prev": None,
-
-        # 2. 指数
-        "nq": None,
-        "spx": None,
-        "nky": None,
-
-        # 3. VIX
+        "nq": None,      # Nasdaq 100
+        "spx": None,     # S&P 500
+        "nky": None,     # Nikkei 225
         "vix": None,
-        "vix_f": None,
-
-        # 4. 金利
-        "us10y": None,
-        "us2y": None,
+        "us10y": None,   # 米10年債
+        "us2y": None,    # 米2年債
         "yield_spread": None,
-
-        # 5. コモディティ
         "gold": None,
-        "wti": None,
-        "copper": None,
-
-        # 6. BTC
+        "wti": None,     # 原油
         "btc": None,
-
-        # 7. ニュース
         "news": [],
     }
 
-    # --- 1. FGI ---
-    data["fgi"], data["fgi_prev"] = get_fgi()
+    # 1. FGI
+    data["fgi"], _ = get_fgi()
 
-    # --- 2. 指数（Investing.com pair_id） ---
-    data["nq"] = investing_get(8874)     # NASDAQ100
-    data["spx"] = investing_get(166)     # S&P500
-    data["nky"] = investing_get(178)     # Nikkei225
+    # 2. 指数 (Yahoo Financeのティッカーを使用)
+    data["nq"] = get_yf_data("^NDX")
+    data["spx"] = get_yf_data("^GSPC")
+    data["nky"] = get_yf_data("^N225")
 
-    # --- 3. VIX ---
-    data["vix"] = cnbc_get("https://www.cnbc.com/quotes/.VIX")
-    data["vix_f"] = cnbc_get("https://www.cnbc.com/quotes/VIX3M")
+    # 3. VIX
+    data["vix"] = get_yf_data Ripley"^VIX")
 
-    # --- 4. 金利 ---
-    data["us10y"] = cnbc_get("https://www.cnbc.com/quotes/US10Y")
-    data["us2y"] = cnbc_get("https://www.cnbc.com/quotes/US2Y")
+    # 4. 金利
+    data["us10y"] = get_yf_data("^TNX") # 10-Year Treasury Yield
+    data["us2y"] = get_yf_data("^IRX")  # 13-week T-Bill (2年債は^TYX(30y)等と比較して適切なものを選んでください)
+    
+    # 利回り差の計算
+    if data["us10y"][0] and data["us2y"][0]:
+        data["yield_spread"] = round(data["us10y"][0] - data["us2y"][0], 3)
 
-    # 利回り差
-    try:
-        if data["us10y"][0] is not None and data["us2y"][0] is not None:
-            data["yield_spread"] = round(data["us10y"][0] - data["us2y"][0], 3)
-    except:
-        data["yield_spread"] = None
+    # 5. コモディティ
+    data["gold"] = get_yf_data("GC=F")
+    data["wti"] = get_yf_data("CL=F")
 
-    # --- 5. コモディティ ---
-    data["gold"] = tv_get("GOLD")
-    data["wti"] = tv_get("USOIL")
-    data["copper"] = tv_get("COPPER")
+    # 6. BTC
+    data["btc"] = get_yf_data("BTC-USD")
 
-    # --- 6. BTC ---
-    data["btc"] = tv_get("BTCUSD")
-
-    # --- 7. ニュース ---
+    # 7. ニュース
     data["news"] = get_news()
 
     print("=== get_all_market_data end ===")
     return data
+
+if __name__ == "__main__":
+    result = get_all_market_data()
+    import pprint
+    pprint.pprint(result)
