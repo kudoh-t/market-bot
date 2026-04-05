@@ -33,8 +33,8 @@ def push_line_message(text: str):
 def tv_fetch(market, symbols):
     """
     TradingView スキャナー API
-    market: "america", "japan", "crypto"
-    symbols: ["NDX", "SPX", ...]
+    market: america / japan / futures / crypto
+    symbols: ["NASDAQ:NDX", ...]
     """
     url = f"https://scanner.tradingview.com/{market}/scan"
 
@@ -49,9 +49,8 @@ def tv_fetch(market, symbols):
 
         result = {}
         for d in data.get("data", []):
-            s = d["s"]  # シンボル名
+            s = d["s"]
             close = d["d"][0]
-            change = d["d"][1]
             pct = d["d"][2]
             result[s] = (close, pct)
 
@@ -199,10 +198,10 @@ def llm(prompt: str) -> str:
     for line in lines:
         if "FGI" in line:
             summary.append("投資家心理は慎重姿勢が続く。")
-        if "金利" in line:
-            summary.append("金利動向が市場の方向性を左右しやすい状況。")
         if "指数" in line:
             summary.append("主要指数は方向感を探る展開。")
+        if "商品" in line:
+            summary.append("コモディティ市場は落ち着いた動き。")
         if "ニュース" in line:
             summary.append("ニュースは市場に限定的な影響。")
 
@@ -230,21 +229,21 @@ def main(llm_func):
     except:
         fgi = {"value": None, "label": "取得不可", "diff": 0}
 
-    # TradingView で一括取得
-    us = tv_fetch("america", ["NDX", "SPX"])
-    jp = tv_fetch("japan", ["N225"])
-    com = tv_fetch("america", ["GC1!", "CL1!", "HG1!"])
-    crypto = tv_fetch("crypto", ["BTCUSD"])
+    # TradingView で市場ごとに取得
+    us = tv_fetch("america", ["NASDAQ:NDX", "SP:SPX"])
+    jp = tv_fetch("japan", ["INDEX:NKY"])
+    com = tv_fetch("futures", ["COMEX:GC1!", "NYMEX:CL1!", "COMEX:HG1!"])
+    crypto = tv_fetch("crypto", ["BITSTAMP:BTCUSD"])
 
-    nq, nq_pct = us.get("NDX", (None, None))
-    spx, spx_pct = us.get("SPX", (None, None))
-    nikkei, nikkei_pct = jp.get("N225", (None, None))
+    nq, nq_pct = us.get("NASDAQ:NDX", (None, None))
+    spx, spx_pct = us.get("SP:SPX", (None, None))
+    nikkei, nikkei_pct = jp.get("INDEX:NKY", (None, None))
 
-    gold, gold_pct = com.get("GC1!", (None, None))
-    wti, wti_pct = com.get("CL1!", (None, None))
-    copper, copper_pct = com.get("HG1!", (None, None))
+    gold, gold_pct = com.get("COMEX:GC1!", (None, None))
+    wti, wti_pct = com.get("NYMEX:CL1!", (None, None))
+    copper, copper_pct = com.get("COMEX:HG1!", (None, None))
 
-    btc, btc_pct = crypto.get("BTCUSD", (None, None))
+    btc, btc_pct = crypto.get("BITSTAMP:BTCUSD", (None, None))
 
     # ニュース
     xml = fetch_news()
