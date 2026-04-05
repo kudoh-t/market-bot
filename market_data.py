@@ -2,29 +2,37 @@ import requests
 import datetime
 
 # ============================
-# TradingView 汎用取得関数
+# Investing.com 汎用取得関数
 # ============================
 
-def tv_get(symbol):
+def inv_get(id):
     """
-    TradingView から close / change / change_percent を取得
+    Investing.com の非公式APIから価格と変化率を取得
     """
     try:
-        url = "https://scanner.tradingview.com/america/scan"
-        payload = {
-            "symbols": {
-                "tickers": [symbol],
-                "query": {"types": []}
-            },
-            "columns": ["close", "change", "change_percent"]
+        url = f"https://api.investing.com/api/financialdata/{id}/historical/chart/?interval=P1D&pointscount=2"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
         }
-        res = requests.post(url, json=payload, timeout=5).json()
-        d = res["data"][0]["d"]
-        price = d[0]
-        change = d[2]  # change_percent
-        return price, change
+        res = requests.get(url, headers=headers, timeout=5).json()
+
+        data = res["data"]
+        if len(data) < 2:
+            return None, None
+
+        prev = data[-2]["last_close"]
+        price = data[-1]["last_close"]
+
+        if prev is None or price is None:
+            return None, None
+
+        change_percent = (price - prev) / prev * 100
+        return price, change_percent
+
     except:
         return None, None
+
 
 # ============================
 # FGI（CNN API）
@@ -40,12 +48,6 @@ def get_fgi():
     except:
         return None, None
 
-# ============================
-# BTC（TradingView）
-# ============================
-
-def get_btc():
-    return tv_get("BINANCE:BTCUSDT")
 
 # ============================
 # まとめて取得
@@ -55,29 +57,29 @@ def get_market_data():
     fgi_now, fgi_prev = get_fgi()
 
     # VIX（現物・先物）
-    vix_p, vix_c = tv_get("CBOE:VIX")
-    vxf_p, vxf_c = tv_get("CBOE:VIX1!")
+    vix_p, vix_c = inv_get(44336)
+    vxf_p, vxf_c = inv_get(44337)
 
     # 金利
-    u10_p, u10_c = tv_get("TVC:US10Y")
-    u2_p, u2_c = tv_get("TVC:US02Y")
+    u10_p, u10_c = inv_get(23705)
+    u2_p, u2_c = inv_get(23701)
 
     spread = None
     if u10_p is not None and u2_p is not None:
         spread = (u10_p - u2_p)
 
     # コモディティ
-    gold_p, gold_c = tv_get("COMEX:GC1!")
-    wti_p, wti_c = tv_get("NYMEX:CL1!")
-    cop_p, cop_c = tv_get("COMEX:HG1!")
+    gold_p, gold_c = inv_get(8830)
+    wti_p, wti_c = inv_get(8849)
+    cop_p, cop_c = inv_get(8836)
 
     # 株価指数先物
-    nq_p, nq_c = tv_get("CME_MINI:NQ1!")
-    es_p, es_c = tv_get("CME_MINI:ES1!")
-    nk_p, nk_c = tv_get("OSE:NK2251!")
+    nq_p, nq_c = inv_get(8874)
+    es_p, es_c = inv_get(8839)
+    nk_p, nk_c = inv_get(178)
 
-    # BTC
-    btc_p, btc_c = get_btc()
+    # BTC（Investing.com）
+    btc_p, btc_c = inv_get(945629)
 
     return {
         "date": datetime.datetime.now().strftime("%Y.%m.%d"),
