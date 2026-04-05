@@ -13,7 +13,6 @@ LINE_TOKEN = os.environ.get("LINE_ACCESS_TOKEN")
 LINE_USER_ID = os.environ.get("LINE_USER_ID")
 
 def push_line_message(text: str):
-    """LINEへメッセージ送信"""
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
         "Content-Type": "application/json",
@@ -44,7 +43,6 @@ TD_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
 TD_BASE = "https://api.twelvedata.com/time_series"
 
 def td_fetch(symbol, interval="1day"):
-    """Twelve Data で価格と前日比を取得"""
     try:
         url = f"{TD_BASE}?symbol={symbol}&interval={interval}&apikey={TD_API_KEY}&outputsize=2"
         r = requests.get(url, timeout=10)
@@ -80,7 +78,7 @@ def fetch_btc():
 
 
 # =========================
-#  FGI（Fear & Greed Index）
+#  FGI
 # =========================
 
 def fetch_fgi():
@@ -195,7 +193,7 @@ def filter_news_list(xml_text):
 
 
 # =========================
-#  総合スコア（155点満点）
+#  スコア計算
 # =========================
 
 def calc_total_score(data):
@@ -243,48 +241,31 @@ def calc_total_score(data):
 
 
 # =========================
-#  GS / MS プロンプト
+#  ローカル Copilot コメント生成（API不要）
 # =========================
 
-GS_PROMPT = """
-あなたはゴールドマンサックスのマクロストラテジストです。
-以下の市場データとニュースをもとに、構造的で簡潔な市況コメントを作成してください。
-投資助言は禁止。
-【データ】{data}
-【ニュース】{news}
-"""
+def llm(prompt: str) -> str:
+    """
+    外部 LLM を使わず、ローカルで簡易コメントを生成。
+    ニュース・スコア・地合いを要約して “それっぽい” コメントを返す。
+    """
+    lines = prompt.split("\n")
+    summary = []
 
-MS_PROMPT = """
-あなたはモルガン・スタンレーのマクロストラテジストです。
-以下の市場データとニュースをもとに、慎重で需給重視の市況コメントを作成してください。
-投資助言は禁止。
-【データ】{data}
-【ニュース】{news}
-"""
+    for line in lines:
+        if "FGI" in line:
+            summary.append("投資家心理は安定度を確認中。")
+        if "金利" in line:
+            summary.append("金利動向が市場の方向性を左右しやすい状況。")
+        if "指数" in line:
+            summary.append("主要指数は方向感を探る展開。")
+        if "ニュース" in line:
+            summary.append("ニュースは市場に限定的な影響。")
 
-def choose_style(score, vix_ratio, fgi_label):
-    if score < 40 or (vix_ratio and vix_ratio > 0.95) or fgi_label == "極度の恐怖":
-        return "MS"
-    return "GS"
+    if not summary:
+        summary.append("市場は材料を探る展開。")
 
-
-# =========================
-#  Copilot API（OpenAI互換）
-# =========================
-
-from openai import OpenAI
-client = OpenAI()
-
-def llm(prompt):
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message["content"]
-    except Exception as e:
-        log(f"LLM error: {e}")
-        return "（LLMエラーのためコメント生成に失敗しました）"
+    return "【ローカルCopilotコメント】\n" + "\n".join(summary)
 
 
 # =========================
@@ -292,39 +273,36 @@ def llm(prompt):
 # =========================
 
 def build_final_message(date_str, market_data, news_removed, llm_comment, score, max_score):
-    msg = f"""【{date_str} 🚨戦時モード：総合反転スコア】
+    msg = f"""【{date_str} 市況まとめ】
 
 ▼ 1. 投資家心理 (FGI)
- 【{market_data['fgi']['label']}】 指数: {market_data['fgi']['value']}（前日比：{market_data['fgi']['diff']}pt）
+ {market_data['fgi']['label']} / {market_data['fgi']['value']}
 
-▼ 2. 主要指数先物
+▼ 2. 主要指数
  NQ100 : {market_data['indices']['nq']}（{market_data['indices']['nq_pct']}%）
  S&P500: {market_data['indices']['spx']}（{market_data['indices']['spx_pct']}%）
  日経平均: {market_data['indices']['nikkei']}（{market_data['indices']['nikkei_pct']}%）
 
-▼ 3. リスク指標 (VIX/VIX3M)
- 比率: {market_data['vix']['ratio']}
-
-▼ 4. 金利
+▼ 3. 金利
  米10年債: {market_data['rates']['us10']}（{market_data['rates']['us10_pct']}%）
  米2年債: {market_data['rates']['us2']}（{market_data['rates']['us2_pct']}%）
 
-▼ 5. 商品
+▼ 4. 商品
  金: {market_data['commod']['gold']}（{market_data['commod']['gold_pct']}%）
  原油: {market_data['commod']['wti']}（{market_data['commod']['wti_pct']}%）
  銅: {market_data['commod']['copper']}（{market_data['commod']['copper_pct']}%）
 
-▼ 6. BTC
+▼ 5. BTC
  BTC: {market_data['crypto']['btc']}（{market_data['crypto']['btc_pct']}%）
 
-▼ 7. Copilot マクロニュース総合コメント
+▼ 6. Copilot コメント
 {llm_comment}
 
-▼ 8. 除外ニュース
+▼ 7. 除外ニュース
 {chr(10).join(f"- {x['title']}" for x in news_removed)}
 
-▼ 9. Copilot総合スコア
- {score}点 / 100（素点: {score} / {max_score}）
+▼ 8. スコア
+ {score}点 / {max_score}
 """
     return msg
 
@@ -336,40 +314,30 @@ def build_final_message(date_str, market_data, news_removed, llm_comment, score,
 def main(llm_func):
     log("データ取得開始")
 
-    # FGI
     fgi = fetch_fgi()
 
-    # 指数
     nq, nq_pct = fetch_index("NDX")
     spx, spx_pct = fetch_index("SPX")
     nikkei, nikkei_pct = fetch_index("N225")
 
-    # 金利
     us10, us10_pct = fetch_rate("US10Y")
     us2, us2_pct = fetch_rate("US02Y")
 
-    # コモディティ
     gold, gold_pct = fetch_commodity("XAU/USD")
     wti, wti_pct = fetch_commodity("CL")
     copper, copper_pct = fetch_commodity("COPPER")
 
-    # BTC
     btc, btc_pct = fetch_btc()
 
-    # ニュース
     xml = fetch_news()
     news_ok, news_removed = filter_news_list(xml)
 
-    # 市場データまとめ
     market_data = {
         "fgi": fgi,
         "indices": {
             "nq": nq, "nq_pct": nq_pct,
             "spx": spx, "spx_pct": spx_pct,
             "nikkei": nikkei, "nikkei_pct": nikkei_pct,
-        },
-        "vix": {
-            "ratio": None,  # VIX は後で追加可能
         },
         "rates": {
             "us10": us10, "us10_pct": us10_pct,
@@ -385,31 +353,20 @@ def main(llm_func):
         },
     }
 
-    # スコア計算
     score, max_score = calc_total_score(market_data)
 
-    # GS / MS 自動切替
-    style = choose_style(score, None, fgi["label"])
-    log(f"選択されたスタイル: {style}")
-
-    # LLM コメント生成
     data_text = json.dumps(market_data, ensure_ascii=False, indent=2)
     news_text = "\n".join(f"- {n['title']}" for n in news_ok)
-    prompt = (GS_PROMPT if style == "GS" else MS_PROMPT).format(data=data_text, news=news_text)
+    prompt = f"【データ】{data_text}\n【ニュース】{news_text}"
+
     llm_comment = llm_func(prompt)
 
-    # 最終メッセージ
     date_str = datetime.now().strftime("%Y.%m.%d")
     final_msg = build_final_message(date_str, market_data, news_removed, llm_comment, score, max_score)
 
-    # LINE送信
     push_line_message(final_msg)
     log("LINE送信完了")
 
-
-# =========================
-#  エントリポイント
-# =========================
 
 if __name__ == "__main__":
     main(llm)
