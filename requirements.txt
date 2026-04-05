@@ -5,3 +5,4 @@ lxml
 google-genai
 python-dotenv
 tenacity
+feedparser
