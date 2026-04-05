@@ -78,16 +78,17 @@ def get_vix_futures_fmp():
 # ============================
 # VIX先物：推定（最終手段）
 # ============================
-def estimate_vix_futures(vix_change):
-    if vix_change is None:
+def estimate_vix_futures(vix_price, vix_change):
+    if vix_price is None or vix_change is None:
         return None, None
-    return None, vix_change * 0.8
+    # 価格は現物を流用、変化率は0.8倍
+    return vix_price, vix_change * 0.8
 
 
 # ============================
 # VIX先物：フェイルオーバー統合
 # ============================
-def get_vix_futures_safe(vix_change):
+def get_vix_futures_safe(vix_price, vix_change):
     # ① Yahoo Finance
     vxf = get_vix_futures_yahoo()
     if vxf[0] is not None:
@@ -98,8 +99,8 @@ def get_vix_futures_safe(vix_change):
     if vxf[0] is not None:
         return vxf
 
-    # ③ 推定
-    return estimate_vix_futures(vix_change)
+    # ③ 推定（VIX現物から）
+    return estimate_vix_futures(vix_price, vix_change)
 
 
 # ============================
@@ -120,10 +121,11 @@ def get_market_data():
 
     # VIX現物
     data["vix"] = get_yf_data("^VIX")
+    vix_price  = data["vix"][0] if data["vix"] else None
+    vix_change = data["vix"][1] if data["vix"] else None
 
     # VIX先物（フェイルオーバー）
-    vix_change = data["vix"][1] if data["vix"] else None
-    data["vix_f"] = get_vix_futures_safe(vix_change)
+    data["vix_f"] = get_vix_futures_safe(vix_price, vix_change)
 
     # 金利
     data["us10y"], data["us2y"] = get_yf_data("^TNX"), get_yf_data("^IRX")
