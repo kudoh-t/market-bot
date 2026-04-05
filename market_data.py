@@ -4,7 +4,11 @@ import pandas as pd
 from datetime import datetime
 
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
 }
 
 # ============================
@@ -16,10 +20,10 @@ def get_yf_data(ticker):
         if df.empty or len(df) < 2:
             return None, None
 
-        close = df['Close'].iloc[:, 0] if isinstance(df['Close'], pd.DataFrame) else df['Close']
+        close = df["Close"].iloc[:, 0] if isinstance(df["Close"], pd.DataFrame) else df["Close"]
         last, prev = float(close.iloc[-1]), float(close.iloc[-2])
         return last, ((last - prev) / prev) * 100
-    except:
+    except Exception:
         return None, None
 
 
@@ -31,8 +35,8 @@ def get_fgi():
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         res = requests.get(url, headers=headers, timeout=10)
         d = res.json()
-        return int(d['fear_and_greed']['score']), int(d['fear_and_greed']['previous_close'])
-    except:
+        return int(d["fear_and_greed"]["score"]), int(d["fear_and_greed"]["previous_close"])
+    except Exception:
         return None, None
 
 
@@ -55,7 +59,7 @@ def get_vix_futures_yahoo():
             last = meta["regularMarketPrice"]
             prev = meta["chartPreviousClose"]
             return last, (last - prev) / prev * 100
-        except:
+        except Exception:
             continue
 
     return None, None
@@ -68,10 +72,12 @@ def get_vix_futures_fmp():
     try:
         url = "https://financialmodelingprep.com/api/v3/quote/VX=F?apikey=demo"
         res = requests.get(url, timeout=5).json()
+        if not res:
+            return None, None
         last = res[0]["price"]
         prev = res[0]["previousClose"]
         return last, (last - prev) / prev * 100
-    except:
+    except Exception:
         return None, None
 
 
@@ -92,15 +98,15 @@ def get_vix_futures_safe(vix_price, vix_change):
     # ① Yahoo Finance
     vxf = get_vix_futures_yahoo()
     if vxf[0] is not None:
-        return vxf
+        return vxf, False  # 推定ではない
 
     # ② FMP
     vxf = get_vix_futures_fmp()
     if vxf[0] is not None:
-        return vxf
+        return vxf, False  # 推定ではない
 
     # ③ 推定（VIX現物から）
-    return estimate_vix_futures(vix_price, vix_change)
+    return estimate_vix_futures(vix_price, vix_change), True  # 推定値
 
 
 # ============================
@@ -116,16 +122,16 @@ def get_market_data():
     data["nq"], data["spx"], data["nky"] = (
         get_yf_data("NQ=F"),
         get_yf_data("ES=F"),
-        get_yf_data("NIY=F")
+        get_yf_data("NIY=F"),
     )
 
     # VIX現物
     data["vix"] = get_yf_data("^VIX")
-    vix_price  = data["vix"][0] if data["vix"] else None
+    vix_price = data["vix"][0] if data["vix"] else None
     vix_change = data["vix"][1] if data["vix"] else None
 
-    # VIX先物（フェイルオーバー）
-    data["vix_f"] = get_vix_futures_safe(vix_price, vix_change)
+    # VIX先物（フェイルオーバー＋推定フラグ）
+    data["vix_f"], data["vix_f_est"] = get_vix_futures_safe(vix_price, vix_change)
 
     # 金利
     data["us10y"], data["us2y"] = get_yf_data("^TNX"), get_yf_data("^IRX")
@@ -136,11 +142,13 @@ def get_market_data():
     else:
         data["yield_spread"] = None
 
-    # コモディティ
-    data["gold"], data["wti"], data["copper"] = (
+    # コモディティ（銀・天然ガス追加）
+    data["gold"], data["wti"], data["copper"], data["silver"], data["natgas"] = (
         get_yf_data("GC=F"),
         get_yf_data("CL=F"),
-        get_yf_data("HG=F")
+        get_yf_data("HG=F"),
+        get_yf_data("SI=F"),
+        get_yf_data("NG=F"),
     )
 
     # BTC

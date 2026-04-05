@@ -68,21 +68,26 @@ def combine_rate_comments(c10, c2, csp):
 
 
 # ============================
-# コモディティ分析
+# コモディティ分析（銀・天然ガス対応）
 # ============================
 
-def get_commodities_analysis(gold_c, wti_c, cop_c):
-    if gold_c is None or wti_c is None or cop_c is None:
+def get_commodities_analysis(gold_c, wti_c, cop_c, silver_c, gas_c):
+    if any(x is None for x in [gold_c, wti_c, cop_c, silver_c, gas_c]):
         return "コモディティ取得失敗"
 
-    if gold_c > 1 and wti_c > 1:
-        return "🔥リスク回避＋供給不安：市場は不安定です。"
-    elif gold_c > 1:
-        return "⚠️金上昇：安全資産需要が高まっています。"
-    elif wti_c > 1:
-        return "⚠️原油上昇：供給不安または地政学リスク。"
-    else:
-        return "⚖️【中立】明確なコモディティシグナルなし。"
+    # 原油急騰
+    if wti_c > 2:
+        return "⚠️原油急騰：供給不安または地政学リスク。"
+
+    # 天然ガス急騰
+    if gas_c > 3:
+        return "⚠️天然ガス急騰：エネルギー価格の上昇リスク。"
+
+    # 貴金属上昇
+    if gold_c > 1 or silver_c > 1:
+        return "⚠️貴金属上昇：安全資産需要が高まっています。"
+
+    return "⚖️【中立】明確なコモディティシグナルなし。"
 
 
 # ============================
@@ -124,39 +129,37 @@ def get_btc_comment(btc_c):
 def calc_reversal_score(market, war_score, peace_score):
     score = 0
 
-    # --- FGI（恐怖が強いほど反転期待が高まる） ---
+    # FGI
     fgi = market.get("fgi")
     if fgi is not None:
-        score += max(0, 30 - fgi) * 0.8  # 最大24点
+        score += max(0, 30 - fgi) * 0.8
 
-    # --- 株価指数（下落が強いほど反転期待） ---
+    # 株価指数
     for key in ["nasdaq_change", "sp500_change", "nikkei_change"]:
         c = market.get(key)
         if c is not None and c < 0:
-            score += min(10, abs(c)) * 0.8  # 最大24点
+            score += min(10, abs(c)) * 0.8
 
-    # --- VIX（高いほど反転期待） ---
+    # VIX
     vix_c = market.get("vix_change")
     if vix_c is not None:
-        score += min(20, vix_c) * 1.0  # 最大20点
+        score += min(20, vix_c)
 
-    # --- 金利（逆イールドが強いほど反転期待） ---
+    # スプレッド
     spread = market.get("yield_spread")
     if spread is not None and spread < 0:
-        score += min(20, abs(spread) * 10)  # 最大20点
+        score += min(20, abs(spread) * 10)
 
-    # --- コモディティ（原油急騰はリスク） ---
+    # 原油急騰はマイナス
     wti_c = market.get("wti_change")
     if wti_c is not None and wti_c > 2:
-        score -= min(10, wti_c)  # 最大 -10点
+        score -= min(10, wti_c)
 
-    # --- ニュース（戦時モードは反転期待を押し下げる） ---
+    # ニュース
     score -= war_score * 2
     score += peace_score * 1
 
-    # 正規化
-    score = max(0, min(100, int(score)))
-    return score
+    return max(0, min(100, int(score)))
 
 
 # ============================
@@ -165,39 +168,38 @@ def calc_reversal_score(market, war_score, peace_score):
 
 def analyze_market(market, classified_news, war_score=None, peace_score=None):
 
-    # --- VIX ---
-    vix_p = market.get("vix_change")
-    vxf_p = market.get("vix_futures_change")
-    vix_comment = get_vix_analysis(vix_p, vxf_p)
+    # VIX
+    vix_comment = get_vix_analysis(
+        market.get("vix_change"),
+        market.get("vix_futures_change")
+    )
 
-    # --- 金利 ---
-    us10y_c = market.get("us10y_change")
-    us2y_c = market.get("us2y_change")
-    spread = market.get("yield_spread")
-
-    rate10_comment = get_10y_rate_comment(us10y_c)
-    rate2_comment = get_2y_rate_comment(us2y_c)
-    spread_comment = get_yield_spread_comment(spread)
+    # 金利
+    rate10_comment = get_10y_rate_comment(market.get("us10y_change"))
+    rate2_comment  = get_2y_rate_comment(market.get("us2y_change"))
+    spread_comment = get_yield_spread_comment(market.get("yield_spread"))
     rate_total_comment = combine_rate_comments(rate10_comment, rate2_comment, spread_comment)
 
-    # --- コモディティ ---
+    # コモディティ（銀・天然ガス対応）
     commodity_comment = get_commodities_analysis(
         market.get("gold_change"),
         market.get("wti_change"),
-        market.get("copper_change")
+        market.get("copper_change"),
+        market.get("silver_change"),
+        market.get("natgas_change"),
     )
 
-    # --- 株式相対強弱 ---
+    # 株式相対強弱
     equity_comment = get_equity_relative_comment(
         market.get("nikkei_change"),
         market.get("nasdaq_change"),
         market.get("sp500_change")
     )
 
-    # --- BTC ---
+    # BTC
     btc_comment = get_btc_comment(market.get("btc_change"))
 
-    # --- 総合反転スコア ---
+    # 総合反転スコア
     reversal_score = calc_reversal_score(market, war_score, peace_score)
 
     return {
