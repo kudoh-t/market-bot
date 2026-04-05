@@ -101,7 +101,7 @@ def get_all_market_data():
     data["nky"] = get_yf_data("^N225")
 
     # 3. VIX
-    data["vix"] = get_yf_data Ripley"^VIX")
+    data["vix"] = get_yf_data("^VIX")
 
     # 4. 金利
     data["us10y"] = get_yf_data("^TNX") # 10-Year Treasury Yield
