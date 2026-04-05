@@ -73,7 +73,7 @@ def get_fgi_detail(now_val, prev_val):
 
 def get_vix_analysis(v_spot, v_fut):
     if v_spot is None:
-        return "⚠️VIXデータ欠損"
+        return "⚠️VVIXデータ欠損"
 
     # ① VIX先物が欠損：現物だけで判断
     if v_fut is None:
@@ -143,7 +143,6 @@ def get_equity_relative_comment(nk_c, nq_c, es_c):
     if diff <= -0.5:
         return f"🇺🇸米国優位（乖離:{diff:+.2f}%）"
     return "⚖️日米拮抗"
-
 # ============================
 # データ取得
 # ============================
@@ -217,9 +216,11 @@ def get_market_data():
             fgi_prev = 50
     d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
+    # VIX
     d["vix_p"], d["vix_c"] = fetch_yahoo("%5EVIX")
     d["vxf_p"], d["vxf_c"] = fetch_vix_future_raw()
 
+    # 株・商品・金利
     targets = {
         "nq": "NQ=F",
         "es": "ES=F",
@@ -233,6 +234,7 @@ def get_market_data():
     for k, s in targets.items():
         d[f"{k}_p"], d[f"{k}_c"] = fetch_yahoo(s)
 
+    # 2年債（代替候補）
     d["u2_p"], d["u2_c"] = None, None
     for s in ["2Y=F", "^IRX", "^ZYY"]:
         p, c = fetch_yahoo(s)
@@ -240,26 +242,30 @@ def get_market_data():
             d["u2_p"], d["u2_c"] = p, c
             break
 
+    # 欠損補完
     for key in ["vix", "vxf", "nq", "es", "nk", "gold", "wti", "cop", "u10", "u2", "btc"]:
         fill_with_prev(d, prev, f"{key}_p", f"{key}_c")
 
+    # VIX先物が完全欠損 → 現物で代用
     if d.get("vxf_p") is None and d.get("vix_p") is not None:
         d["vxf_p"] = d["vix_p"]
         d["vxf_c"] = 0.0
 
+    # イールド差
     d["spread"] = (
         (d.get("u10_p") - d.get("u2_p"))
         if d.get("u10_p") is not None and d.get("u2_p") is not None
         else None
     )
 
+    # 日付
     d["date"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%d")
 
     save_data_cache(d)
     return d
 
 # ============================
-# Copilot ローカル評価
+# Copilot ローカル評価（旧）
 # ============================
 def copilot_comment(report: str) -> str:
     text = report.lower()
@@ -268,9 +274,92 @@ def copilot_comment(report: str) -> str:
     if "強欲" in report or "上昇" in report:
         return "投資家心理は改善傾向で、リスク選好が戻りつつあります。"
     return "市場は方向感に乏しく、慎重姿勢が続いています。"
+# ============================
+# 戦時／平時ニューステンプレ
+# ============================
+def generate_news_block(mode):
+    news_templates = {
+        "war": [
+            "中東情勢は依然不安定。イランの報復可能性が市場のリスク許容度を抑制。",
+            "ウクライナ前線は膠着。欧州エネルギー供給懸念が再浮上。",
+            "トランプ政権の関税強化発言が市場に波及。ドル高圧力が継続。",
+            "FRB高官がインフレ鈍化の遅れを指摘。利下げ時期の後ずれ観測が強まる。",
+            "原油は供給不安で堅調。金は安全資産需要で上昇基調。",
+        ],
+        "peace": [
+            "中東情勢は落ち着きを取り戻し、原油供給は安定方向。",
+            "ウクライナ情勢では停戦協議が進展し、欧州のエネルギー不安が後退。",
+            "トランプ政権は企業減税や規制緩和を推進し、市場心理を下支え。",
+            "FRBはインフレ鈍化を確認し、利下げ期待が高まる。",
+            "原油・金は落ち着いた値動きで、需給バランスが安定。",
+        ],
+    }
+    selected = news_templates.get(mode, [])
+    return "\n".join([f"・{item}" for item in selected])
+
 
 # ============================
-# メッセージ構築
+# Copilot’s View（戦時3／平時3）
+# ============================
+def generate_copilot_view(mode, pattern=1):
+    war_patterns = {
+        1: "地政学リスクが市場心理を圧迫し、反発力は限定的です。原油・金の上昇は典型的な戦時モードのシグナルで、キャッシュ保護が合理的です。",
+        2: "金利差の拡大と地政学不安が重なり、株式市場は上値が重い展開です。無理な逆張りよりも、下落の第二波に備える局面です。",
+        3: "投資家心理は極度の恐怖に傾き、リスク回避姿勢が鮮明です。反転の兆しは弱く、守りを固める戦略が適切です。",
+    }
+
+    peace_patterns = {
+        1: "地政学リスクが後退し、投資家心理は改善傾向です。金利低下とともに株式市場の反発余地が広がっています。",
+        2: "企業決算や経済指標が堅調で、リスクオンの流れが強まっています。押し目買いが機能しやすい環境です。",
+        3: "市場は安定し、資金は株式へ回帰しています。金利・為替・コモディティがバランスよく推移し、上昇トレンドが持続しやすい状況です。",
+    }
+
+    if mode == "war":
+        return war_patterns.get(pattern, "")
+    else:
+        return peace_patterns.get(pattern, "")
+
+
+# ============================
+# キーワード辞書（JSON形式）
+# ============================
+keywords = {
+    "war": {
+        "iran": [
+            "報復", "対抗措置", "ミサイル", "革命防衛隊", "核開発",
+            "制裁強化", "ホルムズ海峡", "供給不安", "タンカー攻撃",
+            "シーア派", "代理勢力", "レッドライン"
+        ],
+        "ukraine": [
+            "前線膠着", "攻勢", "軍事支援", "NATO", "制空権",
+            "インフラ攻撃", "停戦交渉", "領土問題", "長期化",
+            "欧州エネルギー", "天然ガス", "制裁"
+        ],
+        "trump": [
+            "関税強化", "対中強硬", "ドル高", "移民政策",
+            "国防費増額", "軍事姿勢", "外交不確実性",
+            "FRB圧力", "金融政策発言", "政策リスク"
+        ]
+    },
+    "peace": {
+        "iran": [
+            "緊張緩和", "核合意", "制裁緩和", "供給安定",
+            "地域対話", "仲介外交", "停戦合意"
+        ],
+        "ukraine": [
+            "停戦協議", "復興支援", "欧州安定化",
+            "エネルギー正常化", "国際支援", "和平ロードマップ"
+        ],
+        "trump": [
+            "税制改革", "規制緩和", "企業減税",
+            "インフラ投資", "雇用創出", "市場フレンドリー"
+        ]
+    }
+}
+
+
+# ============================
+# メッセージ構築（ニュース＋Copilot’s View 統合）
 # ============================
 def build_message(d):
     prev_data = load_prev_data()
@@ -278,13 +367,15 @@ def build_message(d):
     prev_vix = prev_data.get("vix_p") or 0
     fgi = d.get("fgi_score") or 50
 
-    # 戦時/平時/移行モード判定（VIX＋FGI複合）
+    # 戦時/平時/移行モード判定
     if vix_p >= 25 or fgi <= 20:
+        mode = "war"
         mode_title = "🚨戦時モード：総合反転スコア"
     elif vix_p <= 18 and fgi >= 40:
+        mode = "peace"
         mode_title = "🍀平時モード：トレンドスコア"
     else:
-        # VIXの変化で移行感も少し見る
+        mode = "war" if vix_p >= 20 else "peace"
         if vix_p >= 20 and prev_vix < 20:
             mode_title = "⚠️移行モード：警戒開始"
         elif vix_p < 20 and prev_vix >= 20:
@@ -292,10 +383,10 @@ def build_message(d):
         else:
             mode_title = "⚠️移行モード：警戒継続"
 
+    # スコア計算（既存ロジック）
     score = 0
-    max_score = 155  # 上限は少し余裕を持たせたまま
+    max_score = 155
 
-    # 株指数
     if (d.get("nq_c") or 0) > 0:
         score += 25
     if (d.get("es_c") or 0) > 0:
@@ -303,7 +394,6 @@ def build_message(d):
     if (d.get("nk_c") or 0) > 0:
         score += 20
 
-    # VIX現物の危険度スコア
     if vix_p >= 30:
         score += 25
     elif vix_p >= 25:
@@ -311,11 +401,9 @@ def build_message(d):
     elif vix_p >= 20:
         score += 5
 
-    # 逆イールド（戦時寄りの要素）
     if (d.get("spread") is not None) and d["spread"] < 0:
         score += 20
 
-    # BTCリスクオン
     if (d.get("btc_c") or 0) >= 3:
         score += 20
 
@@ -324,19 +412,24 @@ def build_message(d):
     def fmt(p, c, dec=2):
         return f"{p:.{dec}f}（{c:+.2f}%）" if p is not None else "取得失敗"
 
+    # ここまでが既存の ▼1〜6
+    # ▼1〜6（既存部分）
     msg = [
         f"【{d.get('date')} {mode_title}】\n",
         "▼ 1. 投資家心理 (FGI)",
         f" {get_fgi_detail(d.get('fgi_score'), d.get('fgi_prev'))}\n",
+
         "▼ 2. 主要指数先物 & 相対強弱",
         f" ・米 NQ100 : {fmt(d.get('nq_p'), d.get('nq_c'))}",
         f" ・米 S&P500: {fmt(d.get('es_p'), d.get('es_c'))}",
         f" ・日経平均 : {fmt(d.get('nk_p'), d.get('nk_c'))}",
         f" 💡 {get_equity_relative_comment(d.get('nk_c'), d.get('nq_c'), d.get('es_c'))}\n",
+
         "▼ 3. リスク指標 (VIX)",
         f" ・VIX現物: {fmt(d.get('vix_p'), d.get('vix_c'))}",
         f" ・VIX先物: {fmt(d.get('vxf_p'), d.get('vxf_c'))}",
         f" 💡 {get_vix_analysis(d.get('vix_p'), d.get('vxf_p'))}\n",
+
         "▼ 4. 金利・イールド",
         f" ・米10年債: {fmt(d.get('u10_p'), d.get('u10_c'))}",
         f" ・米 2年債: {fmt(d.get('u2_p'), d.get('u2_c'))}",
@@ -346,19 +439,35 @@ def build_message(d):
             else " ・利回り差: 失敗"
         ),
         f" 💡 {get_yield_detail(d.get('spread'))}\n",
+
         "▼ 5. 商品 (Commodities)",
         f" ・金 (Gold): {fmt(d.get('gold_p'), d.get('gold_c'), 1)}",
         f" ・原油(WTI): {fmt(d.get('wti_p'), d.get('wti_c'))}",
         f" ・銅 (Cop) : {fmt(d.get('cop_p'), d.get('cop_c'), 3)}",
         f" 💡 {get_commodities_analysis(d.get('gold_c'), d.get('wti_c'), d.get('cop_c'))}\n",
+
         "▼ 6. 仮想通貨 (Crypto)",
         f" ・BTC: ${fmt(d.get('btc_p'), d.get('btc_c'), 0)}",
         f" 💡 {get_btc_comment(d.get('btc_c'))}\n",
+
         f"⚖️ 総合スコア：{scaled}点 / 100 （素点: {score} / {max_score}）",
         f" {'📈 打診買い検討' if scaled >= 50 else '🌑 キャッシュ保護優先'}\n",
         "--------------------------",
     ]
+
+    # ▼ 7. ニュース（戦時／平時切替）
+    news_block = generate_news_block(mode)
+    msg.append("▼ 7. 主要ニュース")
+    msg.append(news_block)
+    msg.append("--------------------------")
+
+    # Copilot’s View（戦時3／平時3からランダム or 固定）
+    view = generate_copilot_view(mode, pattern=1)
+    msg.append("--- 🤖 Copilot's View ---")
+    msg.append(view)
+
     return "\n".join(msg)
+
 
 # ============================
 # メイン
@@ -366,8 +475,8 @@ def build_message(d):
 def main():
     data = get_market_data()
     report = build_message(data)
-    feedback = copilot_comment(report)
-    send_line(f"{report}\n\n--- 🤖 Copilot's View ---\n{feedback}")
+    send_line(report)
+
 
 if __name__ == "__main__":
     main()
