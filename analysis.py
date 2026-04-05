@@ -83,4 +83,50 @@ def get_btc_comment(btc_c):
         return "⚠️弱気：リスク回避姿勢が強まっています。"
     else:
         return "⚖️【安定】リスク許容度は維持。"
+def analyze_market(market, classified_news, war_score=None, peace_score=None):
+    """
+    市場データとニュース分類を統合して総合分析を返す
+    """
 
+    # --- VIX ---
+    vix_p = market.get("vix_change")
+    vxf_p = market.get("vix_futures_change")
+    vix_comment = get_vix_analysis(vix_p, vxf_p)
+
+    # --- イールド ---
+    spread = market.get("yield_spread")
+    yield_comment = get_yield_detail(spread)
+
+    # --- コモディティ ---
+    gold_c = market.get("gold_change")
+    wti_c = market.get("wti_change")
+    cop_c = market.get("copper_change")
+    commodity_comment = get_commodities_analysis(gold_c, wti_c, cop_c)
+
+    # --- 株式相対強弱 ---
+    nk_c = market.get("nikkei_change")
+    nq_c = market.get("nasdaq_change")
+    es_c = market.get("sp500_change")
+    equity_comment = get_equity_relative_comment(nk_c, nq_c, es_c)
+
+    # --- BTC ---
+    btc_c = market.get("btc_change")
+    btc_comment = get_btc_comment(btc_c)
+
+    # --- ニュースモード ---
+    news_mode = {
+        "war_score": war_score,
+        "peace_score": peace_score,
+        "dominant": "war" if war_score > peace_score else "peace" if peace_score > war_score else "neutral"
+    }
+
+    # --- 統合結果 ---
+    return {
+        "vix_comment": vix_comment,
+        "yield_comment": yield_comment,
+        "commodity_comment": commodity_comment,
+        "equity_comment": equity_comment,
+        "btc_comment": btc_comment,
+        "news_mode": news_mode,
+        "classified_news": classified_news
+    }
