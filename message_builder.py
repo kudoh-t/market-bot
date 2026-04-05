@@ -1,7 +1,7 @@
 import json
 import os
 
-# 既存の外部関数インポート（ここはそのままでOK）
+# 既存の外部関数インポート
 from analysis import (
     get_vix_analysis,
     get_yield_detail,
@@ -35,7 +35,30 @@ def save_prev_data(data):
         pass
 
 # ============================
-# 市場モード判定（安定化版）
+# Copilot’s View
+# ============================
+def generate_copilot_view(mode, classified):
+    if mode == "war":
+        return (
+            "地政学リスクが市場心理を圧迫しています。\n"
+            "戦時ニュースが複数確認され、VIXも高止まり。\n"
+            "反発局面は限定的となる可能性が高いです。"
+        )
+    elif mode == "peace":
+        return (
+            "市場はリスク許容度を取り戻しつつあります。\n"
+            "平時ニュースが優勢で、金利・VIXも安定。\n"
+            "押し目買いが機能しやすい環境です。"
+        )
+    else:
+        return (
+            "市場は方向感を探る展開です。\n"
+            "地政学・金融政策ニュースが混在しており、\n"
+            "短期的には上下に振れやすい相場が続きそうです。"
+        )
+
+# ============================
+# 市場モード判定
 # ============================
 def determine_market_mode(vix_tuple, fgi, prev_vix, news_war, news_peace):
     if news_war > news_peace * 1.3:
@@ -63,7 +86,7 @@ def build_message(d):
         news_war_score, news_peace_score
     )
 
-    # ③ データ整形用ヘルパー（重要：Noneを安全に処理）
+    # ③ データ整形用ヘルパー
     def fmt_val(data_tuple, dec=2, prefix=""):
         if not isinstance(data_tuple, (tuple, list)) or data_tuple[0] is None:
             return "取得失敗"
@@ -71,7 +94,6 @@ def build_message(d):
         return f"{prefix}{price:.{dec}f}（{change:+.2f}%）"
 
     def get_val(data_tuple, idx):
-        """タプルから安全に値を取り出す"""
         if isinstance(data_tuple, (tuple, list)) and len(data_tuple) > idx:
             return data_tuple[idx]
         return None
@@ -88,7 +110,6 @@ def build_message(d):
     msg.append(f" ・米 S&P500: {fmt_val(d.get('spx'))}")
     msg.append(f" ・日経平均 : {fmt_val(d.get('nky'))}")
     
-    # 指数コメント
     nk_c = get_val(d.get('nky'), 1)
     nq_c = get_val(d.get('nq'), 1)
     spx_c = get_val(d.get('spx'), 1)
@@ -96,7 +117,7 @@ def build_message(d):
 
     msg.append("▼ 3. リスク指標 (VIX)")
     msg.append(f" ・VIX現物: {fmt_val(d.get('vix'))}")
-    msg.append(f" ・VIX先物: {fmt_val(d.get('vix_f'))}") # market_data.pyのキー名に合わせる
+    msg.append(f" ・VIX先物: {fmt_val(d.get('vix_f'))}")
     
     vix_p = get_val(d.get('vix'), 0)
     vxf_p = get_val(d.get('vix_f'), 0)
@@ -128,7 +149,6 @@ def build_message(d):
     msg.append("--------------------------")
     msg.append("▼ 7. 主要ニュース（カテゴリ別）")
 
-    # ニュース
     cat_map = {"geopolitics":"【地政学】","monetary":"【金融政策】","commodity":"【コモディティ】","equity":"【株式】","other":"【その他】"}
     for cat in ["geopolitics", "monetary", "commodity", "equity", "other"]:
         items = classified["categories"].get(cat, [])
@@ -140,8 +160,7 @@ def build_message(d):
     msg.append("--------------------------")
     msg.append("--- 🤖 Copilot's View ---")
     
-    # View生成用のダミー
-    from message_builder import generate_copilot_view
+    # 修正箇所：インポートせず直接呼び出す
     msg.append(generate_copilot_view(mode, classified))
 
     save_prev_data(d)
