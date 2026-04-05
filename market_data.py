@@ -1,33 +1,55 @@
 import requests
+from bs4 import BeautifulSoup
 import datetime
 
 # ============================
-# Investing.com 汎用取得関数
+# 汎用スクレイピング関数（CNBC）
 # ============================
 
-def inv_get(id):
+def cnbc_get(url):
     """
-    Investing.com の非公式APIから価格と変化率を取得
+    CNBC の銘柄ページから現在値と変化率を取得
     """
     try:
-        url = f"https://api.investing.com/api/financialdata/{id}/historical/chart/?interval=P1D&pointscount=2"
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json"
-        }
-        res = requests.get(url, headers=headers, timeout=5).json()
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=8)
+        soup = BeautifulSoup(res.text, "html.parser")
 
-        data = res["data"]
-        if len(data) < 2:
+        price_tag = soup.find("span", {"class": "QuoteStrip-lastPrice"})
+        change_tag = soup.find("span", {"class": "QuoteStrip-changePct"})
+
+        if not price_tag or not change_tag:
             return None, None
 
-        prev = data[-2]["last_close"]
-        price = data[-1]["last_close"]
+        price = float(price_tag.text.replace(",", "").replace("$", ""))
+        change_percent = float(change_tag.text.replace("%", "").replace("+", "").replace("−", "-"))
 
-        if prev is None or price is None:
+        return price, change_percent
+
+    except:
+        return None, None
+
+
+# ============================
+# Yahoo Finance（BTC）
+# ============================
+
+def yahoo_btc():
+    try:
+        url = "https://finance.yahoo.com/quote/BTC-USD/"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=8)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        price_tag = soup.find("fin-streamer", {"data-field": "regularMarketPrice"})
+        change_tag = soup.find("fin-streamer", {"data-field": "regularMarketChangePercent"})
+
+        if not price_tag or not change_tag:
             return None, None
 
-        change_percent = (price - prev) / prev * 100
+        price = float(price_tag.text.replace(",", ""))
+        change_percent = float(change_tag.text.replace("%", "").replace("+", "").replace("−", "-"))
+
         return price, change_percent
 
     except:
@@ -56,30 +78,38 @@ def get_fgi():
 def get_market_data():
     fgi_now, fgi_prev = get_fgi()
 
-    # VIX（現物・先物）
-    vix_p, vix_c = inv_get(44336)
-    vxf_p, vxf_c = inv_get(44337)
+    # CNBC URL 一覧
+    urls = {
+        "vix": "https://www.cnbc.com/quotes/.VIX",
+        "vxf": "https://www.cnbc.com/quotes/VX1",
+        "nq": "https://www.cnbc.com/quotes/NQ=F",
+        "es": "https://www.cnbc.com/quotes/ES=F",
+        "nk": "https://www.cnbc.com/quotes/NK=F",
+        "gold": "https://www.cnbc.com/quotes/GC=F",
+        "wti": "https://www.cnbc.com/quotes/CL=F",
+        "cop": "https://www.cnbc.com/quotes/HG=F",
+        "u10": "https://www.cnbc.com/quotes/US10Y",
+        "u2": "https://www.cnbc.com/quotes/US2Y",
+    }
 
-    # 金利
-    u10_p, u10_c = inv_get(23705)
-    u2_p, u2_c = inv_get(23701)
+    # CNBC から取得
+    vix_p, vix_c = cnbc_get(urls["vix"])
+    vxf_p, vxf_c = cnbc_get(urls["vxf"])
+    nq_p, nq_c = cnbc_get(urls["nq"])
+    es_p, es_c = cnbc_get(urls["es"])
+    nk_p, nk_c = cnbc_get(urls["nk"])
+    gold_p, gold_c = cnbc_get(urls["gold"])
+    wti_p, wti_c = cnbc_get(urls["wti"])
+    cop_p, cop_c = cnbc_get(urls["cop"])
+    u10_p, u10_c = cnbc_get(urls["u10"])
+    u2_p, u2_c = cnbc_get(urls["u2"])
 
     spread = None
     if u10_p is not None and u2_p is not None:
-        spread = (u10_p - u2_p)
+        spread = u10_p - u2_p
 
-    # コモディティ
-    gold_p, gold_c = inv_get(8830)
-    wti_p, wti_c = inv_get(8849)
-    cop_p, cop_c = inv_get(8836)
-
-    # 株価指数先物
-    nq_p, nq_c = inv_get(8874)
-    es_p, es_c = inv_get(8839)
-    nk_p, nk_c = inv_get(178)
-
-    # BTC（Investing.com）
-    btc_p, btc_c = inv_get(945629)
+    # BTC（Yahoo）
+    btc_p, btc_c = yahoo_btc()
 
     return {
         "date": datetime.datetime.now().strftime("%Y.%m.%d"),
