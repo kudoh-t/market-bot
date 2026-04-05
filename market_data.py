@@ -21,7 +21,7 @@ def get_yf_data(ticker, period="5d"):
 
 def get_fgi():
     try:
-        # CNNの内部APIを直接叩く
+        # CNNの内部APIを直接叩く方式に変更して安定化
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
@@ -40,7 +40,7 @@ def get_market_data():
     data["us10y"] = get_yf_data("^TNX")
     data["us2y"] = get_yf_data("^IRX")
     
-    if data["us10y"][0] is not None and data["us2y"][0] is not None:
+    if data["us10y"] and data["us10y"][0] is not None and data["us2y"] and data["us2y"][0] is not None:
         data["yield_spread"] = data["us10y"][0] - data["us2y"][0]
     else:
         data["yield_spread"] = None
