@@ -75,7 +75,6 @@ def get_vix_analysis(v_spot, v_3m):
     if v_spot is None or v_3m is None:
         return "⚠️VIXデータ欠損（比較不能）"
 
-    # VIX現物とVIX3Mの比率で市場の緊張度を判定
     ratio = v_spot / v_3m
     
     if ratio >= 1.0:
@@ -96,13 +95,23 @@ def get_yield_detail(spread):
 def get_commodities_analysis(gold_c, wti_c, cop_c):
     if any(v is None for v in [gold_c, wti_c, cop_c]):
         return "⚠️商品データ不足。"
+    
+    # GS風・個別銘柄の強弱を拾うロジック
+    # 1. 複合マクロシグナル
     if gold_c > 0.5 and wti_c > 1.0:
-        return "🚨【有事・インフレ】金と原油が同時高。株に重石。"
+        return "🚨【スタグフレーション警戒】金・原油の同時高。コスト増が指数全体の期待利益を下方修正させる懸念。"
     if gold_c > 0.5 and cop_c < -1.0:
-        return "📉【景気後退懸念】銅安・金高。安全資産へ逃避。"
-    if cop_c > 1.0 and wti_c > 1.0:
-        return "🏗️【需要増】景気敏感資源が堅調。株に追い風。"
-    return "⚖️【中立】明確なコモディティシグナルなし。"
+        return "📉【景気後退シグナル】銅安・金高。ドクター・カッパーがマクロ経済のハードランディングを警告。"
+    
+    # 2. 個別銘柄の特筆すべき動き
+    if cop_c > 1.5:
+        return f"🏗️【銅の独歩高】{cop_c:+.1f}%の急伸。リスクオフ下での景気底打ち、または供給タイト化を示唆。製造業への波及を注視。"
+    if wti_c > 1.5:
+        return f"🔥【エネルギー価格騰勢】原油が{wti_c:+.1f}%上昇。期待インフレ率を押し上げ、実質金利低下を阻害するリスク。"
+    if gold_c > 1.0:
+        return f"🛡️【テールリスクヘッジ】金が{gold_c:+.1f}%上昇。実質金利との相関を逸脱した買いが見られ、ポートフォリオの保守化を示唆。"
+
+    return "⚖️【中立】コモディティ価格はレンジ内。明確なマクロシグナルは観察されません。"
 
 def get_btc_comment(btc_change):
     if btc_change is None:
@@ -158,7 +167,6 @@ def get_market_data():
     d = {}
     prev = load_prev_data()
 
-    # FGI：失敗 → 前回値 → それもなければ中立50
     fgi_now, fgi_prev = fetch_fgi_raw()
     if fgi_now is None:
         if prev.get("fgi_score") is not None:
@@ -169,7 +177,6 @@ def get_market_data():
             fgi_prev = 50
     d["fgi_score"], d["fgi_prev"] = fgi_now, fgi_prev
 
-    # VIX現物と、代替のVIX3Mを取得
     d["vix_p"], d["vix_c"] = fetch_yahoo("%5EVIX")
     d["v3m_p"], d["v3m_c"] = fetch_yahoo("%5EVIX3M")
 
@@ -193,11 +200,9 @@ def get_market_data():
             d["u2_p"], d["u2_c"] = p, c
             break
 
-    # キャッシュ補完
     for key in ["vix", "v3m", "nq", "es", "nk", "gold", "wti", "cop", "u10", "u2", "btc"]:
         fill_with_prev(d, prev, f"{key}_p", f"{key}_c")
 
-    # 利回り差
     d["spread"] = (
         (d.get("u10_p") - d.get("u2_p"))
         if d.get("u10_p") is not None and d.get("u2_p") is not None
@@ -205,7 +210,6 @@ def get_market_data():
     )
 
     d["date"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%d")
-
     save_data_cache(d)
     return d
 
@@ -247,11 +251,9 @@ def build_message(d):
     if (d.get("nq_c") or 0) > 0: score += 25
     if (d.get("es_c") or 0) > 0: score += 20
     if (d.get("nk_c") or 0) > 0: score += 20
-
     if vix_p >= 30: score += 25
     elif vix_p >= 25: score += 15
     elif vix_p >= 20: score += 5
-
     if (d.get("spread") is not None) and d["spread"] < 0: score += 20
     if (d.get("btc_c") or 0) >= 3: score += 20
 
@@ -292,9 +294,6 @@ def build_message(d):
     ]
     return "\n".join(msg)
 
-# ============================
-# メイン
-# ============================
 def main():
     data = get_market_data()
     report = build_message(data)
