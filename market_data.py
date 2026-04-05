@@ -121,10 +121,10 @@ def get_market_data():
     # 7. ニュース
     data["news"] = get_news()
 
-    print("=== get_all_market_data end ===")
+    print("=== get_market_data end ===")
     return data
 
 if __name__ == "__main__":
-    result = get_all_market_data()
+    result = get_market_data()
     import pprint
     pprint.pprint(result)
