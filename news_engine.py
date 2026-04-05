@@ -3,9 +3,8 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 
 # ============================
-# ニュース出所の信頼度スコア
+# ニュース出所の信頼度スコア（変更なし）
 # ============================
-
 NEWS_SOURCE_SCORE = {
     "ロイター": 95,
     "Reuters": 95,
@@ -23,9 +22,8 @@ NEWS_SOURCE_SCORE = {
 }
 
 # ============================
-# RSSフィード一覧
+# RSSフィード一覧（変更なし）
 # ============================
-
 NEWS_FEEDS = [
     "https://news.yahoo.co.jp/rss/topics/top-picks.xml",
     "https://news.yahoo.co.jp/rss/topics/world.xml",
@@ -33,9 +31,8 @@ NEWS_FEEDS = [
 ]
 
 # ============================
-# Yahooニュース記事ページから出所を抽出
+# Yahooニュース記事ページから出所を抽出（変更なし）
 # ============================
-
 def extract_source_from_article(url):
     try:
         html = requests.get(url, timeout=5).text
@@ -52,11 +49,11 @@ def extract_source_from_article(url):
     return "不明"
 
 # ============================
-# RSSニュース取得
+# RSSニュース取得（★修正：重複と関係ないニュースを排除）
 # ============================
-
 def fetch_rss_news(max_items=15):
     news_list = []
+    seen_links = set()  # 重複URLチェック用
 
     for feed in NEWS_FEEDS:
         try:
@@ -68,6 +65,14 @@ def fetch_rss_news(max_items=15):
                 link = item.findtext("link")
 
                 if title and link:
+                    # 1. すでに取得済みのリンク（重複）ならスキップ
+                    if link in seen_links:
+                        continue
+                    
+                    # 2. 投資に関係ないカテゴリ（other）ならスキップ
+                    if classify_category(title) == "other":
+                        continue
+
                     source = extract_source_from_article(link)
 
                     news_list.append({
@@ -75,6 +80,9 @@ def fetch_rss_news(max_items=15):
                         "link": link,
                         "source": source,
                     })
+                    
+                    # 取得済みリストにリンクを記録
+                    seen_links.add(link)
 
                 if len(news_list) >= max_items:
                     break
@@ -86,9 +94,8 @@ def fetch_rss_news(max_items=15):
     return news_list
 
 # ============================
-# ニュースカテゴリ分類
+# ニュースカテゴリ分類（変更なし）
 # ============================
-
 CATEGORY_KEYWORDS = {
     "geopolitics": ["イラン", "イスラエル", "ウクライナ", "ロシア", "北朝鮮", "軍事", "攻撃", "報復", "ミサイル"],
     "monetary": ["FRB", "利下げ", "利上げ", "金利", "インフレ", "CPI", "PCE", "FOMC"],
@@ -107,9 +114,8 @@ def classify_category(title):
     return "other"
 
 # ============================
-# 戦時 / 平時 ニュース分類
+# 戦時 / 平時 ニュース分類（変更なし）
 # ============================
-
 WAR_KEYWORDS = ["攻撃", "軍事", "報復", "ミサイル", "戦闘", "紛争", "衝突"]
 PEACE_KEYWORDS = ["停戦", "協議", "合意", "和平", "緊張緩和"]
 
@@ -127,9 +133,8 @@ def classify_war_peace(title):
     return "neutral"
 
 # ============================
-# ニュースリストを分類
+# ニュースリストを分類（変更なし）
 # ============================
-
 def classify_news_list(news_list):
     classified = {
         "war": [],
@@ -156,9 +161,8 @@ def classify_news_list(news_list):
     return classified
 
 # ============================
-# ニューススコア（信頼度反映）
+# ニューススコア（変更なし）
 # ============================
-
 def calculate_news_mode_score(classified_news):
     war_score = 0
     peace_score = 0
@@ -174,4 +178,3 @@ def calculate_news_mode_score(classified_news):
         peace_score += base / 10
 
     return int(war_score), int(peace_score)
-
