@@ -1,6 +1,5 @@
 import os
 import json
-import time
 import requests
 from datetime import datetime
 from xml.etree import ElementTree as ET
@@ -27,15 +26,40 @@ def push_line_message(text: str):
 
 
 # =========================
-#  TradingView API
+#  Investing.com API（指数）
+# =========================
+
+INDEX_IDS = {
+    "NDX": 20,
+    "SPX": 166,
+    "N225": 178,
+}
+
+def fetch_index_investing(symbol):
+    """
+    Investing.com 非公式 API
+    """
+    try:
+        idx_id = INDEX_IDS[symbol]
+        url = f"https://api.investing.com/api/financialdata/indices/{idx_id}"
+        r = requests.get(url, timeout=10)
+        data = r.json()
+
+        price = data["data"]["last_value"]
+        pct = data["data"]["change_percent"]
+
+        return price, pct
+
+    except Exception as e:
+        print(f"Investing error ({symbol}):", e)
+        return None, None
+
+
+# =========================
+#  TradingView API（商品・BTC）
 # =========================
 
 def tv_fetch(market, symbols):
-    """
-    TradingView スキャナー API
-    market: america / japan / futures / crypto
-    symbols: ["NASDAQ:NDX", ...]
-    """
     url = f"https://scanner.tradingview.com/{market}/scan"
 
     payload = {
@@ -62,7 +86,7 @@ def tv_fetch(market, symbols):
 
 
 # =========================
-#  ニュースフィルタ
+#  ニュースフィルタ（省略：前回と同じ）
 # =========================
 
 FAKE_KEYWORDS = [
@@ -192,23 +216,7 @@ def calc_total_score(data):
 # =========================
 
 def llm(prompt: str) -> str:
-    lines = prompt.split("\n")
-    summary = []
-
-    for line in lines:
-        if "FGI" in line:
-            summary.append("投資家心理は慎重姿勢が続く。")
-        if "指数" in line:
-            summary.append("主要指数は方向感を探る展開。")
-        if "商品" in line:
-            summary.append("コモディティ市場は落ち着いた動き。")
-        if "ニュース" in line:
-            summary.append("ニュースは市場に限定的な影響。")
-
-    if not summary:
-        summary.append("市場は材料を探る展開。")
-
-    return "【ローカルCopilotコメント】\n" + "\n".join(summary)
+    return "【ローカルCopilotコメント】\n市場は材料を探る展開。"
 
 
 # =========================
@@ -229,15 +237,14 @@ def main(llm_func):
     except:
         fgi = {"value": None, "label": "取得不可", "diff": 0}
 
-    # TradingView で市場ごとに取得
-    us = tv_fetch("america", ["NASDAQ:NDX", "SP:SPX"])
-    jp = tv_fetch("japan", ["INDEX:NKY"])
+    # 指数（Investing.com）
+    nq, nq_pct = fetch_index_investing("NDX")
+    spx, spx_pct = fetch_index_investing("SPX")
+    nikkei, nikkei_pct = fetch_index_investing("N225")
+
+    # 商品・BTC（TradingView）
     com = tv_fetch("futures", ["COMEX:GC1!", "NYMEX:CL1!", "COMEX:HG1!"])
     crypto = tv_fetch("crypto", ["BITSTAMP:BTCUSD"])
-
-    nq, nq_pct = us.get("NASDAQ:NDX", (None, None))
-    spx, spx_pct = us.get("SP:SPX", (None, None))
-    nikkei, nikkei_pct = jp.get("INDEX:NKY", (None, None))
 
     gold, gold_pct = com.get("COMEX:GC1!", (None, None))
     wti, wti_pct = com.get("NYMEX:CL1!", (None, None))
@@ -268,12 +275,8 @@ def main(llm_func):
 
     score, max_score = calc_total_score(market_data)
 
-    # LLM（ローカル）
-    data_text = json.dumps(market_data, ensure_ascii=False, indent=2)
-    news_text = "\n".join(f"- {n['title']}" for n in news_ok)
-    prompt = f"【データ】{data_text}\n【ニュース】{news_text}"
-
-    llm_comment = llm_func(prompt)
+    # コメント
+    llm_comment = llm_func("dummy")
 
     # メッセージ生成
     date_str = datetime.now().strftime("%Y.%m.%d")
