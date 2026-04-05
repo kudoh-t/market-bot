@@ -10,18 +10,18 @@ headers = {
 def get_yf_data(ticker, period="5d"):
     try:
         df = yf.download(ticker, period=period, interval="1d", progress=False)
-        if df.empty or len(df) < 2:
-            return None, None
+        if df.empty or len(df) < 2: return None, None
+        # DataFrameでもSeriesでも対応可能に取得
         close_series = df['Close'].iloc[:, 0] if isinstance(df['Close'], pd.DataFrame) else df['Close']
-        last_price = float(close_series.iloc[-1])
-        prev_price = float(close_series.iloc[-2])
-        change_pct = ((last_price - prev_price) / prev_price) * 100
-        return last_price, change_pct
+        last = float(close_series.iloc[-1])
+        prev = float(close_series.iloc[-2])
+        return last, ((last - prev) / prev) * 100
     except:
         return None, None
 
 def get_fgi():
     try:
+        # CNNの内部APIを直接叩く
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
