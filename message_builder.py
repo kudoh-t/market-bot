@@ -65,7 +65,7 @@ def build_message(d):
             "yield_spread": d.get("yield_spread"),
             "gold_change": d.get("gold")[1],
             "wti_change": d.get("wti")[1],
-            "copper_change": 0,  # 未取得なので暫定
+            "copper_change": d.get("copper")[1] if d.get("copper") else 0,
             "nikkei_change": d.get("nky")[1],
             "nasdaq_change": d.get("nq")[1],
             "sp500_change": d.get("spx")[1],
@@ -102,12 +102,14 @@ def build_message(d):
         # --- 4. 金利 ---
         "▼ 4. 金利",
         f" ・米10年債: {safe_fmt(d.get('us10y'))}",
+        f" ・米2年債 : {safe_fmt(d.get('us2y'))}",
         f" ・利回り差: {spread_str}\n",
 
         # --- 5. コモディティ ---
         "▼ 5. 商品",
         f" ・原油(WTI): {safe_fmt(d.get('wti'))}",
-        f" ・金 (Gold): {safe_fmt(d.get('gold'), 1)}\n",
+        f" ・金 (Gold): {safe_fmt(d.get('gold'), 1)}",
+        f" ・銅 (Copper): {safe_fmt(d.get('copper'))}\n",
 
         # --- 6. BTC ---
         "▼ 6. 仮想通貨",

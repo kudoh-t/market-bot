@@ -18,21 +18,53 @@ def get_vix_analysis(vix_p, vxf_p):
 
 
 # ============================
-# イールド（利回り差）分析
+# 金利（10年・2年・スプレッド）分析
 # ============================
 
-def get_yield_detail(spread):
+def get_10y_rate_comment(us10y_change):
+    if us10y_change is None:
+        return "10年金利取得失敗"
+
+    if us10y_change > 3:
+        return "🔥長期金利急騰：インフレ懸念またはリスク回避の売り。"
+    elif us10y_change > 1:
+        return "⚠️長期金利上昇：金融引き締め圧力が意識されています。"
+    elif us10y_change < -1:
+        return "📉長期金利低下：景気減速または利下げ期待。"
+    else:
+        return "⚖️長期金利は安定推移。"
+
+
+def get_2y_rate_comment(us2y_change):
+    if us2y_change is None:
+        return "2年金利取得失敗"
+
+    if us2y_change > 3:
+        return "🔥短期金利急騰：利上げ観測が急速に強まっています。"
+    elif us2y_change > 1:
+        return "⚠️短期金利上昇：市場はタカ派姿勢を織り込み中。"
+    elif us2y_change < -1:
+        return "📉短期金利低下：利下げ期待または景気減速。"
+    else:
+        return "⚖️短期金利は安定推移。"
+
+
+def get_yield_spread_comment(spread):
     if spread is None:
         return "利回り差取得失敗"
 
     if spread < -0.5:
-        return "⚠️逆イールド：景気後退リスクが意識されています。"
+        return "⚠️深い逆イールド：景気後退リスクが強く意識されています。"
     elif spread < 0:
-        return "⚠️軽度逆イールド：市場は慎重姿勢。"
+        return "⚠️逆イールド：短期金利が長期金利を上回る異常状態。"
     elif spread < 0.5:
         return "⚖️中立：金利差は市場に大きな影響を与えていません。"
     else:
-        return "🔥急拡大：金利暴走による価格調整に注意。"
+        return "📈順イールド拡大：景気回復期待が優勢。"
+
+
+def combine_rate_comments(c10, c2, csp):
+    return f"{c10} / {c2} / {csp}"
 
 
 # ============================
@@ -83,6 +115,12 @@ def get_btc_comment(btc_c):
         return "⚠️弱気：リスク回避姿勢が強まっています。"
     else:
         return "⚖️【安定】リスク許容度は維持。"
+
+
+# ============================
+# 統合分析
+# ============================
+
 def analyze_market(market, classified_news, war_score=None, peace_score=None):
     """
     市場データとニュース分類を統合して総合分析を返す
@@ -93,9 +131,16 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
     vxf_p = market.get("vix_futures_change")
     vix_comment = get_vix_analysis(vix_p, vxf_p)
 
-    # --- イールド ---
+    # --- 金利（10年・2年・スプレッド） ---
+    us10y_c = market.get("us10y_change")
+    us2y_c = market.get("us2y_change")
     spread = market.get("yield_spread")
-    yield_comment = get_yield_detail(spread)
+
+    rate10_comment = get_10y_rate_comment(us10y_c)
+    rate2_comment = get_2y_rate_comment(us2y_c)
+    spread_comment = get_yield_spread_comment(spread)
+
+    rate_total_comment = combine_rate_comments(rate10_comment, rate2_comment, spread_comment)
 
     # --- コモディティ ---
     gold_c = market.get("gold_change")
@@ -123,7 +168,10 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
     # --- 統合結果 ---
     return {
         "vix_comment": vix_comment,
-        "yield_comment": yield_comment,
+        "rate10_comment": rate10_comment,
+        "rate2_comment": rate2_comment,
+        "spread_comment": spread_comment,
+        "rate_total_comment": rate_total_comment,
         "commodity_comment": commodity_comment,
         "equity_comment": equity_comment,
         "btc_comment": btc_comment,
