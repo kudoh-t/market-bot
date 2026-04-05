@@ -3,7 +3,7 @@ import os
 import time
 
 def send_line(message):
-    access_token = os.getenv("LINE_ACCESS_TOKEN")
+    access_token = os.getenv("LINE_TOKEN")
     user_id = os.getenv("LINE_USER_ID")
 
     if not access_token or not user_id:
