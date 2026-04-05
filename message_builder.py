@@ -1,18 +1,28 @@
 import json
 import os
-# NEWS_SOURCE_SCOREをインポートに追加
-from news_engine import fetch_rss_news, classify_news_list, calculate_news_mode_score, NEWS_SOURCE_SCORE
+
+# --- 外部モジュール ---
+from news_engine import (
+    fetch_rss_news,
+    classify_news_list,
+    calculate_news_mode_score,
+    NEWS_SOURCE_SCORE
+)
+
+from analysis import analyze_market
+
 
 # ============================
-# ヘルパー関数：安全なフォーマット（変更なし）
+# ヘルパー関数：安全なフォーマット
 # ============================
 def safe_fmt(val_tuple, dec=2, prefix=""):
     if not val_tuple or not isinstance(val_tuple, (tuple, list)) or val_tuple[0] is None:
         return "取得失敗"
     return f"{prefix}{val_tuple[0]:.{dec}f}（{val_tuple[1]:+.2f}%）"
 
+
 # ============================
-# Copilot's View 生成（変更なし）
+# Copilot's View
 # ============================
 def generate_copilot_view(mode):
     views = {
@@ -22,50 +32,126 @@ def generate_copilot_view(mode):
     }
     return views.get(mode, views["neutral"])
 
+
 # ============================
-# メッセージ構築（★ニュース表示部のみ修正）
+# メッセージ構築（完全統合版）
 # ============================
 def build_message(d):
-    # ニュース解析
+
+    # --------------------------
+    # ① ニュース解析
+    # --------------------------
     raw_news = fetch_rss_news(max_items=15)
     classified = classify_news_list(raw_news)
     n_war, n_peace = calculate_news_mode_score(classified)
 
-    # モード判定（変更なし）
-    if n_war > n_peace * 1.3: mode, title = "war", "🚨戦時モード：総合反転スコア"
-    elif n_peace > n_war * 1.3: mode, title = "peace", "🌤平時モード：安定回帰"
-    else: mode, title = "neutral", "⚖️中立モード：方向感模索"
+    # --------------------------
+    # ② モード判定
+    # --------------------------
+    if n_war > n_peace * 1.3:
+        mode, title = "war", "🚨戦時モード：総合反転スコア"
+    elif n_peace > n_war * 1.3:
+        mode, title = "peace", "🌤平時モード：安定回帰"
+    else:
+        mode, title = "neutral", "⚖️中立モード：方向感模索"
 
-    # 利回り差の文字列作成（変更なし）
+    # --------------------------
+    # ③ 市場分析コメント生成（analysis.py）
+    # --------------------------
+    market_analysis = analyze_market(
+        market={
+            "vix_change": d.get("vix")[1],
+            "vix_futures_change": d.get("vix_f")[1],
+            "yield_spread": d.get("yield_spread"),
+            "gold_change": d.get("gold")[1],
+            "wti_change": d.get("wti")[1],
+            "copper_change": 0,  # 未取得なので暫定
+            "nikkei_change": d.get("nky")[1],
+            "nasdaq_change": d.get("nq")[1],
+            "sp500_change": d.get("spx")[1],
+            "btc_change": d.get("btc")[1],
+        },
+        classified_news=classified,
+        war_score=n_war,
+        peace_score=n_peace
+    )
+
+    # --------------------------
+    # ④ メッセージ本文
+    # --------------------------
     spread = d.get('yield_spread')
     spread_str = f"{spread:.3f}" if spread is not None else "失敗"
 
     msg = [
         f"【{d.get('date')} {title}】\n",
+
+        # --- 1. FGI ---
         f"▼ 1. 投資家心理 (FGI)\n 【{d.get('fgi')}】（前日比：{d.get('fgi_prev')}）\n",
-        f"▼ 2. 主要指数先物\n ・米 NQ100 : {safe_fmt(d.get('nq'))}\n ・米 S&P500: {safe_fmt(d.get('spx'))}\n ・日経平均 : {safe_fmt(d.get('nky'))}\n",
-        f"▼ 3. リスク指標 (VIX)\n ・VIX現物: {safe_fmt(d.get('vix'))}\n ・VIX先物: {safe_fmt(d.get('vix_f'))}\n",
-        f"▼ 4. 金利\n ・米10年債: {safe_fmt(d.get('us10y'))}\n ・利回り差: {spread_str}\n",
-        f"▼ 5. 商品\n ・原油(WTI): {safe_fmt(d.get('wti'))}\n ・金 (Gold): {safe_fmt(d.get('gold'), 1)}\n",
-        f"▼ 6. 仮想通貨\n ・BTC: {safe_fmt(d.get('btc'), 0, '$')}\n",
-        "--------------------------\n▼ 7. 主要ニュース"
+
+        # --- 2. 指数 ---
+        "▼ 2. 主要指数先物",
+        f" ・米 NQ100 : {safe_fmt(d.get('nq'))}",
+        f" ・米 S&P500: {safe_fmt(d.get('spx'))}",
+        f" ・日経平均 : {safe_fmt(d.get('nky'))}\n",
+
+        # --- 3. VIX ---
+        "▼ 3. リスク指標 (VIX)",
+        f" ・VIX現物: {safe_fmt(d.get('vix'))}",
+        f" ・VIX先物: {safe_fmt(d.get('vix_f'))}\n",
+
+        # --- 4. 金利 ---
+        "▼ 4. 金利",
+        f" ・米10年債: {safe_fmt(d.get('us10y'))}",
+        f" ・利回り差: {spread_str}\n",
+
+        # --- 5. コモディティ ---
+        "▼ 5. 商品",
+        f" ・原油(WTI): {safe_fmt(d.get('wti'))}",
+        f" ・金 (Gold): {safe_fmt(d.get('gold'), 1)}\n",
+
+        # --- 6. BTC ---
+        "▼ 6. 仮想通貨",
+        f" ・BTC: {safe_fmt(d.get('btc'), 0, '$')}\n",
+
+        "--------------------------",
+        "▼ 7. 主要ニュース"
     ]
 
-    # 【修正箇所】ニュース表示に「出所」と「個別スコア」を追加
-    for cat, label in {"geopolitics":"【地政学】","monetary":"【金融政策】","other":"【その他】"}.items():
+    # --------------------------
+    # ⑤ ニュース表示（出所＋個別スコア）
+    # --------------------------
+    for cat, label in {
+        "geopolitics": "【地政学】",
+        "monetary": "【金融政策】",
+        "other": "【その他】"
+    }.items():
+
         items = classified["categories"].get(cat, [])
         if items:
             msg.append(label)
             for it in items[:2]:
                 src = it.get('source', '不明')
                 indiv_score = NEWS_SOURCE_SCORE.get(src, 50)
-                # タイトルの後ろに (出所:点数) を付与
                 msg.append(f"・{it['title']} ({src}:{indiv_score})")
 
-    # 【修正箇所】ニュース判定の合計スコアを可視化
     msg.append(f"\n[ニュース判定スコア] 戦時:{n_war} / 平時:{n_peace}")
 
-    msg.append("--------------------------\n--- 🤖 Copilot's View ---")
+    # --------------------------
+    # ⑥ 市場コメント（analysis.py）
+    # --------------------------
+    msg.append("\n--------------------------")
+    msg.append("▼ 8. 市場コメント")
+    msg.append(f"・VIX: {market_analysis['vix_comment']}")
+    msg.append(f"・金利: {market_analysis['yield_comment']}")
+    msg.append(f"・コモディティ: {market_analysis['commodity_comment']}")
+    msg.append(f"・株式相対強弱: {market_analysis['equity_comment']}")
+    msg.append(f"・BTC: {market_analysis['btc_comment']}")
+
+    # --------------------------
+    # ⑦ Copilot's View
+    # --------------------------
+    msg.append("\n--------------------------")
+    msg.append("--- 🤖 Copilot's View ---")
     msg.append(generate_copilot_view(mode))
-    
+
     return "\n".join(msg)
