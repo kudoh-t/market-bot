@@ -60,15 +60,18 @@ def build_message(d):
     # --------------------------
     market_analysis = analyze_market(
         market={
+            "fgi": d.get("fgi"),
+            "nasdaq_change": d.get("nq")[1],
+            "sp500_change": d.get("spx")[1],
+            "nikkei_change": d.get("nky")[1],
             "vix_change": d.get("vix")[1],
             "vix_futures_change": d.get("vix_f")[1],
+            "us10y_change": d.get("us10y")[1],
+            "us2y_change": d.get("us2y")[1],
             "yield_spread": d.get("yield_spread"),
             "gold_change": d.get("gold")[1],
             "wti_change": d.get("wti")[1],
             "copper_change": d.get("copper")[1] if d.get("copper") else 0,
-            "nikkei_change": d.get("nky")[1],
-            "nasdaq_change": d.get("nq")[1],
-            "sp500_change": d.get("spx")[1],
             "btc_change": d.get("btc")[1],
         },
         classified_news=classified,
@@ -111,7 +114,7 @@ def build_message(d):
         f" ・金 (Gold): {safe_fmt(d.get('gold'), 1)}",
         f" ・銅 (Copper): {safe_fmt(d.get('copper'))}\n",
 
-        # --- 6. BTC ---
+        # --- 6. 仮想通貨 ---
         "▼ 6. 仮想通貨",
         f" ・BTC: {safe_fmt(d.get('btc'), 0, '$')}\n",
 
@@ -144,15 +147,21 @@ def build_message(d):
     msg.append("\n--------------------------")
     msg.append("▼ 8. 市場コメント")
     msg.append(f"・VIX: {market_analysis['vix_comment']}")
-    msg.append(f"・金利: {market_analysis['yield_comment']}")
+    msg.append(f"・金利: {market_analysis['rate_total_comment']}")
     msg.append(f"・コモディティ: {market_analysis['commodity_comment']}")
     msg.append(f"・株式相対強弱: {market_analysis['equity_comment']}")
     msg.append(f"・BTC: {market_analysis['btc_comment']}")
 
     # --------------------------
-    # ⑦ Copilot's View
+    # ⑦ 総合反転スコア（100点版）
     # --------------------------
     msg.append("\n--------------------------")
+    msg.append("▼ 9. 総合反転スコア")
+    msg.append(f" {market_analysis['reversal_score']} / 100\n")
+
+    # --------------------------
+    # ⑧ Copilot's View
+    # --------------------------
     msg.append("--- 🤖 Copilot's View ---")
     msg.append(generate_copilot_view(mode))
 
