@@ -1,8 +1,9 @@
 import os
 import json
+import time
+import csv
 import requests
-from datetime import datetime
-import re
+from datetime import datetime, timedelta
 from xml.etree import ElementTree as ET
 
 # =========================
@@ -43,54 +44,83 @@ TD_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
 TD_BASE = "https://api.twelvedata.com/time_series"
 
 def td_fetch(symbol, interval="1day"):
-    try:
-        url = f"{TD_BASE}?symbol={symbol}&interval={interval}&apikey={TD_API_KEY}&outputsize=2"
-        r = requests.get(url, timeout=10)
-        data = r.json()
+    """
+    Twelve Data → 3回リトライ → 失敗なら None
+    """
+    for _ in range(3):
+        try:
+            url = f"{TD_BASE}?symbol={symbol}&interval={interval}&apikey={TD_API_KEY}&outputsize=2"
+            r = requests.get(url, timeout=10)
+            data = r.json()
 
-        if "values" not in data:
-            log(f"TwelveData error: {data}")
+            if "values" in data:
+                latest = float(data["values"][0]["close"])
+                prev = float(data["values"][1]["close"])
+                pct = (latest - prev) / prev * 100
+                return latest, pct
+
+        except Exception as e:
+            log(f"Twelve Data error ({symbol}): {e}")
+
+        time.sleep(1)
+
+    return None, None
+
+
+# =========================
+#  Yahoo Finance バックアップ
+# =========================
+
+def yahoo_fetch(symbol):
+    """
+    Yahoo Finance CSV API（Cookie不要・安定）
+    """
+    try:
+        end = datetime.now()
+        start = end - timedelta(days=7)
+
+        url = (
+            f"https://query1.finance.yahoo.com/v7/finance/download/{symbol}"
+            f"?period1={int(start.timestamp())}"
+            f"&period2={int(end.timestamp())}"
+            f"&interval=1d&events=history"
+        )
+
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+
+        lines = r.text.splitlines()
+        reader = csv.DictReader(lines)
+        rows = list(reader)
+
+        if len(rows) < 2:
             return None, None
 
-        latest = float(data["values"][0]["close"])
-        prev = float(data["values"][1]["close"])
+        latest = float(rows[-1]["Close"])
+        prev = float(rows[-2]["Close"])
         pct = (latest - prev) / prev * 100
+
         return latest, pct
 
     except Exception as e:
-        log(f"td_fetch error ({symbol}): {e}")
+        log(f"Yahoo fetch error ({symbol}): {e}")
         return None, None
 
 
-# ====== 各マーケットデータ ======
-
-def fetch_index(symbol):
-    return td_fetch(symbol)
-
-def fetch_rate(symbol):
-    return td_fetch(symbol)
-
-def fetch_commodity(symbol):
-    return td_fetch(symbol)
-
-def fetch_btc():
-    return td_fetch("BTC/USD")
-
-
 # =========================
-#  FGI
+#  フェイルオーバー
 # =========================
 
-def fetch_fgi():
-    try:
-        url = "https://api.alternative.me/fng/?limit=2&format=json"
-        r = requests.get(url, timeout=10)
-        data = r.json()["data"][0]
-        value = int(data["value"])
-        label = data["value_classification"]
-        return {"value": value, "label": label, "diff": 0}
-    except:
-        return {"value": None, "label": "取得不可", "diff": 0}
+def fetch_with_backup(symbol_td, symbol_yf):
+    """
+    Twelve Data → Yahoo Finance の順で取得
+    """
+    price, pct = td_fetch(symbol_td)
+    if price is not None:
+        return price, pct
+
+    log(f"Twelve Data failed for {symbol_td}, trying Yahoo Finance...")
+    return yahoo_fetch(symbol_yf)
 
 
 # =========================
@@ -241,20 +271,16 @@ def calc_total_score(data):
 
 
 # =========================
-#  ローカル Copilot コメント生成（API不要）
+#  ローカル Copilot コメント生成
 # =========================
 
 def llm(prompt: str) -> str:
-    """
-    外部 LLM を使わず、ローカルで簡易コメントを生成。
-    ニュース・スコア・地合いを要約して “それっぽい” コメントを返す。
-    """
     lines = prompt.split("\n")
     summary = []
 
     for line in lines:
         if "FGI" in line:
-            summary.append("投資家心理は安定度を確認中。")
+            summary.append("投資家心理は慎重姿勢が続く。")
         if "金利" in line:
             summary.append("金利動向が市場の方向性を左右しやすい状況。")
         if "指数" in line:
@@ -314,21 +340,32 @@ def build_final_message(date_str, market_data, news_removed, llm_comment, score,
 def main(llm_func):
     log("データ取得開始")
 
-    fgi = fetch_fgi()
+    # FGI
+    try:
+        fgi_data = requests.get("https://api.alternative.me/fng/?limit=2&format=json").json()
+        fgi = {
+            "value": int(fgi_data["data"][0]["value"]),
+            "label": fgi_data["data"][0]["value_classification"],
+            "diff": 0,
+        }
+    except:
+        fgi = {"value": None, "label": "取得不可", "diff": 0}
 
-    nq, nq_pct = fetch_index("NDX")
-    spx, spx_pct = fetch_index("SPX")
-    nikkei, nikkei_pct = fetch_index("N225")
+    # 市場データ（フェイルオーバー）
+    nq, nq_pct = fetch_with_backup("NDX", "NDX")
+    spx, spx_pct = fetch_with_backup("SPX", "SPX")
+    nikkei, nikkei_pct = fetch_with_backup("N225", "^N225")
 
-    us10, us10_pct = fetch_rate("US10Y")
-    us2, us2_pct = fetch_rate("US02Y")
+    us10, us10_pct = fetch_with_backup("US10Y", "^TNX")
+    us2, us2_pct = fetch_with_backup("US02Y", "^IRX")
 
-    gold, gold_pct = fetch_commodity("XAU/USD")
-    wti, wti_pct = fetch_commodity("CL")
-    copper, copper_pct = fetch_commodity("COPPER")
+    gold, gold_pct = fetch_with_backup("XAU/USD", "GC=F")
+    wti, wti_pct = fetch_with_backup("CL=F", "CL=F")
+    copper, copper_pct = fetch_with_backup("HG=F", "HG=F")
 
-    btc, btc_pct = fetch_btc()
+    btc, btc_pct = fetch_with_backup("BTC/USD", "BTC-USD")
 
+    # ニュース
     xml = fetch_news()
     news_ok, news_removed = filter_news_list(xml)
 
@@ -355,12 +392,14 @@ def main(llm_func):
 
     score, max_score = calc_total_score(market_data)
 
+    # LLM（ローカル）
     data_text = json.dumps(market_data, ensure_ascii=False, indent=2)
     news_text = "\n".join(f"- {n['title']}" for n in news_ok)
     prompt = f"【データ】{data_text}\n【ニュース】{news_text}"
 
     llm_comment = llm_func(prompt)
 
+    # メッセージ生成
     date_str = datetime.now().strftime("%Y.%m.%d")
     final_msg = build_final_message(date_str, market_data, news_removed, llm_comment, score, max_score)
 
