@@ -2,7 +2,32 @@ import requests
 import datetime
 
 # ============================
-# FGI（Fear & Greed Index）
+# TradingView 汎用取得関数
+# ============================
+
+def tv_get(symbol):
+    """
+    TradingView から close / change / change_percent を取得
+    """
+    try:
+        url = "https://scanner.tradingview.com/america/scan"
+        payload = {
+            "symbols": {
+                "tickers": [symbol],
+                "query": {"types": []}
+            },
+            "columns": ["close", "change", "change_percent"]
+        }
+        res = requests.post(url, json=payload, timeout=5).json()
+        d = res["data"][0]["d"]
+        price = d[0]
+        change = d[2]  # change_percent
+        return price, change
+    except:
+        return None, None
+
+# ============================
+# FGI（CNN API）
 # ============================
 
 def get_fgi():
@@ -15,91 +40,12 @@ def get_fgi():
     except:
         return None, None
 
-
 # ============================
-# VIX（現物・先物）
-# ============================
-
-def get_vix():
-    try:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX"
-        res = requests.get(url, timeout=5).json()
-        price = res["chart"]["result"][0]["meta"]["regularMarketPrice"]
-        change = res["chart"]["result"][0]["meta"]["regularMarketChangePercent"]
-        return price, change
-    except:
-        return None, None
-
-
-def get_vix_future():
-    try:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX"
-        res = requests.get(url, timeout=5).json()
-        price = res["chart"]["result"][0]["meta"]["regularMarketPrice"]
-        change = res["chart"]["result"][0]["meta"]["regularMarketChangePercent"]
-        return price, change
-    except:
-        return None, None
-
-
-# ============================
-# 金利（2年・10年）
-# ============================
-
-def get_yield(symbol):
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        res = requests.get(url, timeout=5).json()
-        price = res["chart"]["result"][0]["meta"]["regularMarketPrice"]
-        change = res["chart"]["result"][0]["meta"]["regularMarketChangePercent"]
-        return price, change
-    except:
-        return None, None
-
-
-# ============================
-# BTC
+# BTC（TradingView）
 # ============================
 
 def get_btc():
-    try:
-        url = "https://api.coindesk.com/v1/bpi/currentprice/USD.json"
-        res = requests.get(url, timeout=5).json()
-        price = float(res["bpi"]["USD"]["rate"].replace(",", ""))
-        return price
-    except:
-        return None
-
-
-# ============================
-# コモディティ（WTI, Gold, Copper）
-# ============================
-
-def get_yahoo_price(symbol):
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        res = requests.get(url, timeout=5).json()
-        price = res["chart"]["result"][0]["meta"]["regularMarketPrice"]
-        change = res["chart"]["result"][0]["meta"]["regularMarketChangePercent"]
-        return price, change
-    except:
-        return None, None
-
-
-# ============================
-# 株価指数先物（NQ, ES, NK）
-# ============================
-
-def get_index(symbol):
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        res = requests.get(url, timeout=5).json()
-        price = res["chart"]["result"][0]["meta"]["regularMarketPrice"]
-        change = res["chart"]["result"][0]["meta"]["regularMarketChangePercent"]
-        return price, change
-    except:
-        return None, None
-
+    return tv_get("BINANCE:BTCUSDT")
 
 # ============================
 # まとめて取得
@@ -108,26 +54,30 @@ def get_index(symbol):
 def get_market_data():
     fgi_now, fgi_prev = get_fgi()
 
-    vix_p, vix_c = get_vix()
-    vxf_p, vxf_c = get_vix_future()
+    # VIX（現物・先物）
+    vix_p, vix_c = tv_get("CBOE:VIX")
+    vxf_p, vxf_c = tv_get("CBOE:VIX1!")
 
-    u10_p, u10_c = get_yield("^TNX")
-    u2_p, u2_c = get_yield("^IRX")
+    # 金利
+    u10_p, u10_c = tv_get("TVC:US10Y")
+    u2_p, u2_c = tv_get("TVC:US02Y")
 
     spread = None
     if u10_p is not None and u2_p is not None:
-        spread = (u10_p / 100) - (u2_p / 100)
+        spread = (u10_p - u2_p)
 
-    gold_p, gold_c = get_yahoo_price("GC=F")
-    wti_p, wti_c = get_yahoo_price("CL=F")
-    cop_p, cop_c = get_yahoo_price("HG=F")
+    # コモディティ
+    gold_p, gold_c = tv_get("COMEX:GC1!")
+    wti_p, wti_c = tv_get("NYMEX:CL1!")
+    cop_p, cop_c = tv_get("COMEX:HG1!")
 
-    nq_p, nq_c = get_index("NQ=F")
-    es_p, es_c = get_index("ES=F")
-    nk_p, nk_c = get_index("NK=F")
+    # 株価指数先物
+    nq_p, nq_c = tv_get("CME_MINI:NQ1!")
+    es_p, es_c = tv_get("CME_MINI:ES1!")
+    nk_p, nk_c = tv_get("OSE:NK2251!")
 
-    btc_p = get_btc()
-    btc_c = 0  # 変化率は省略（必要なら追加）
+    # BTC
+    btc_p, btc_c = get_btc()
 
     return {
         "date": datetime.datetime.now().strftime("%Y.%m.%d"),
@@ -157,4 +107,3 @@ def get_market_data():
         "btc_p": btc_p,
         "btc_c": btc_c,
     }
-
