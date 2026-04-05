@@ -118,20 +118,59 @@ def get_btc_comment(btc_c):
 
 
 # ============================
+# 総合反転スコア（100点版）
+# ============================
+
+def calc_reversal_score(market, war_score, peace_score):
+    score = 0
+
+    # --- FGI（恐怖が強いほど反転期待が高まる） ---
+    fgi = market.get("fgi")
+    if fgi is not None:
+        score += max(0, 30 - fgi) * 0.8  # 最大24点
+
+    # --- 株価指数（下落が強いほど反転期待） ---
+    for key in ["nasdaq_change", "sp500_change", "nikkei_change"]:
+        c = market.get(key)
+        if c is not None and c < 0:
+            score += min(10, abs(c)) * 0.8  # 最大24点
+
+    # --- VIX（高いほど反転期待） ---
+    vix_c = market.get("vix_change")
+    if vix_c is not None:
+        score += min(20, vix_c) * 1.0  # 最大20点
+
+    # --- 金利（逆イールドが強いほど反転期待） ---
+    spread = market.get("yield_spread")
+    if spread is not None and spread < 0:
+        score += min(20, abs(spread) * 10)  # 最大20点
+
+    # --- コモディティ（原油急騰はリスク） ---
+    wti_c = market.get("wti_change")
+    if wti_c is not None and wti_c > 2:
+        score -= min(10, wti_c)  # 最大 -10点
+
+    # --- ニュース（戦時モードは反転期待を押し下げる） ---
+    score -= war_score * 2
+    score += peace_score * 1
+
+    # 正規化
+    score = max(0, min(100, int(score)))
+    return score
+
+
+# ============================
 # 統合分析
 # ============================
 
 def analyze_market(market, classified_news, war_score=None, peace_score=None):
-    """
-    市場データとニュース分類を統合して総合分析を返す
-    """
 
     # --- VIX ---
     vix_p = market.get("vix_change")
     vxf_p = market.get("vix_futures_change")
     vix_comment = get_vix_analysis(vix_p, vxf_p)
 
-    # --- 金利（10年・2年・スプレッド） ---
+    # --- 金利 ---
     us10y_c = market.get("us10y_change")
     us2y_c = market.get("us2y_change")
     spread = market.get("yield_spread")
@@ -139,33 +178,28 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
     rate10_comment = get_10y_rate_comment(us10y_c)
     rate2_comment = get_2y_rate_comment(us2y_c)
     spread_comment = get_yield_spread_comment(spread)
-
     rate_total_comment = combine_rate_comments(rate10_comment, rate2_comment, spread_comment)
 
     # --- コモディティ ---
-    gold_c = market.get("gold_change")
-    wti_c = market.get("wti_change")
-    cop_c = market.get("copper_change")
-    commodity_comment = get_commodities_analysis(gold_c, wti_c, cop_c)
+    commodity_comment = get_commodities_analysis(
+        market.get("gold_change"),
+        market.get("wti_change"),
+        market.get("copper_change")
+    )
 
     # --- 株式相対強弱 ---
-    nk_c = market.get("nikkei_change")
-    nq_c = market.get("nasdaq_change")
-    es_c = market.get("sp500_change")
-    equity_comment = get_equity_relative_comment(nk_c, nq_c, es_c)
+    equity_comment = get_equity_relative_comment(
+        market.get("nikkei_change"),
+        market.get("nasdaq_change"),
+        market.get("sp500_change")
+    )
 
     # --- BTC ---
-    btc_c = market.get("btc_change")
-    btc_comment = get_btc_comment(btc_c)
+    btc_comment = get_btc_comment(market.get("btc_change"))
 
-    # --- ニュースモード ---
-    news_mode = {
-        "war_score": war_score,
-        "peace_score": peace_score,
-        "dominant": "war" if war_score > peace_score else "peace" if peace_score > war_score else "neutral"
-    }
+    # --- 総合反転スコア ---
+    reversal_score = calc_reversal_score(market, war_score, peace_score)
 
-    # --- 統合結果 ---
     return {
         "vix_comment": vix_comment,
         "rate10_comment": rate10_comment,
@@ -175,6 +209,10 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
         "commodity_comment": commodity_comment,
         "equity_comment": equity_comment,
         "btc_comment": btc_comment,
-        "news_mode": news_mode,
+        "reversal_score": reversal_score,
+        "news_mode": {
+            "war_score": war_score,
+            "peace_score": peace_score
+        },
         "classified_news": classified_news
     }
