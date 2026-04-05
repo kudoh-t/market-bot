@@ -1,3 +1,7 @@
+import requests
+from bs4 import BeautifulSoup
+import datetime
+
 def cnbc_get(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -19,7 +23,7 @@ def cnbc_get(url):
         )
 
         if not change_tag:
-            return price, 0.0  # 変化率が取れない場合は 0 とする
+            return price, 0.0
 
         change_text = change_tag.text.replace("%", "").replace("+", "").replace("−", "-")
         change_percent = float(change_text)
@@ -29,3 +33,18 @@ def cnbc_get(url):
     except Exception as e:
         print("[cnbc_get] error:", e)
         return None, None
+
+
+def get_market_data():
+    print("=== get_market_data start ===")
+
+    vix_url = "https://www.cnbc.com/quotes/.VIX"
+    vix_p, vix_c = cnbc_get(vix_url)
+
+    print("VIX:", vix_p, vix_c)
+
+    return {
+        "date": datetime.datetime.now().strftime("%Y.%m.%d"),
+        "vix_p": vix_p,
+        "vix_c": vix_c,
+    }
