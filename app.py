@@ -480,3 +480,355 @@ def main():
 
 if __name__ == "__main__":
     main()
+# ============================
+# ニュースRSS取得（Yahoo Japan）
+# ============================
+import xml.etree.ElementTree as ET
+
+NEWS_FEEDS = [
+    "https://news.yahoo.co.jp/rss/topics/world.xml",
+    "https://news.yahoo.co.jp/rss/topics/business.xml",
+    "https://news.yahoo.co.jp/rss/topics/economy.xml",
+]
+
+def fetch_rss_news(max_items=10):
+    """
+    YahooニュースRSSから最新ニュースを取得し、
+    タイトル・URL・出所（source）を抽出して返す。
+    """
+    news_list = []
+
+    for feed in NEWS_FEEDS:
+        try:
+            res = requests.get(feed, timeout=5)
+            root = ET.fromstring(res.content)
+
+            for item in root.findall(".//item"):
+                title = item.findtext("title")
+                link = item.findtext("link")
+                source = item.findtext("source") or "不明"
+
+                if title and link:
+                    news_list.append({
+                        "title": title,
+                        "link": link,
+                        "source": source,
+                    })
+
+                if len(news_list) >= max_items:
+                    break
+
+        except Exception as e:
+            print(f"RSS取得エラー: {e}")
+            continue
+
+    return news_list
+# ============================
+# ニュース分類（キーワード辞書を使用）
+# ============================
+
+def classify_news_item(title: str, keywords: dict):
+    """
+    ニュースタイトルをキーワード辞書と照合し、
+    war / peace / neutral のいずれかを返す。
+    """
+    title_lower = title.lower()
+
+    # 戦時キーワード
+    for category, words in keywords["war"].items():
+        for w in words:
+            if w.lower() in title_lower:
+                return "war"
+
+    # 平時キーワード
+    for category, words in keywords["peace"].items():
+        for w in words:
+            if w.lower() in title_lower:
+                return "peace"
+
+    return "neutral"
+
+
+def classify_news_list(news_list, keywords):
+    """
+    ニュースリストを分類し、
+    ・戦時ニュース
+    ・平時ニュース
+    ・中立ニュース
+    に分けて返す。
+    """
+    war_news = []
+    peace_news = []
+    neutral_news = []
+
+    for item in news_list:
+        category = classify_news_item(item["title"], keywords)
+
+        if category == "war":
+            war_news.append(item)
+        elif category == "peace":
+            peace_news.append(item)
+            continue
+        else:
+            neutral_news.append(item)
+
+    return {
+        "war": war_news,
+        "peace": peace_news,
+        "neutral": neutral_news,
+    }
+
+
+def calculate_news_mode_score(classified_news):
+    """
+    戦時/平時ニュースの数からスコアを算出し、
+    ・戦時ポイント
+    ・平時ポイント
+    を返す。
+    """
+    war_count = len(classified_news["war"])
+    peace_count = len(classified_news["peace"])
+
+    # ニュースの重み付け（調整可能）
+    war_score = war_count * 10
+    peace_score = peace_count * 10
+
+    return war_score, peace_score
+# ============================
+# ニュースを戦時/平時モード判定に統合
+# ============================
+
+def determine_market_mode(vix_p, fgi, prev_vix, news_war_score, news_peace_score):
+    """
+    VIX・FGI・ニュース分類スコアを総合して
+    戦時 / 平時 / 移行モード を判定する。
+    """
+
+    # ① 市場データによる基本判定
+    if vix_p >= 25 or fgi <= 20:
+        base_mode = "war"
+    elif vix_p <= 18 and fgi >= 40:
+        base_mode = "peace"
+    else:
+        base_mode = "transition"
+
+    # ② ニューススコアによる補正
+    #    戦時ニュースが多い → war寄り
+    #    平時ニュースが多い → peace寄り
+    if news_war_score - news_peace_score >= 10:
+        news_mode = "war"
+    elif news_peace_score - news_war_score >= 10:
+        news_mode = "peace"
+    else:
+        news_mode = "neutral"
+
+    # ③ 総合判定
+    if base_mode == "war" or news_mode == "war":
+        mode = "war"
+    elif base_mode == "peace" and news_mode != "war":
+        mode = "peace"
+    else:
+        mode = "transition"
+
+    # ④ タイトル（既存ロジックを踏襲）
+    if mode == "war":
+        mode_title = "🚨戦時モード：総合反転スコア"
+    elif mode == "peace":
+        mode_title = "🍀平時モード：トレンドスコア"
+    else:
+        if vix_p >= 20 and prev_vix < 20:
+            mode_title = "⚠️移行モード：警戒開始"
+        elif vix_p < 20 and prev_vix >= 20:
+            mode_title = "🔄移行モード：沈静化の兆し"
+        else:
+            mode_title = "⚠️移行モード：警戒継続"
+
+    return mode, mode_title
+
+
+# ============================
+# Copilot’s View をニュース内容で強化
+# ============================
+
+def generate_copilot_view_with_news(mode, classified_news):
+    """
+    戦時/平時ニュースの内容を踏まえて
+    Copilot’s View をより“本物のアナリスト”に近づける。
+    """
+
+    war_count = len(classified_news["war"])
+    peace_count = len(classified_news["peace"])
+
+    if mode == "war":
+        if war_count >= 3:
+            return (
+                "地政学リスクが市場心理を強く圧迫しています。"
+                "複数の戦時ニュースが同時に発生しており、"
+                "反発局面は限定的となる可能性が高いです。"
+            )
+        else:
+            return (
+                "市場は警戒感を維持していますが、"
+                "戦時ニュースは限定的で、過度な悲観は不要です。"
+            )
+
+    elif mode == "peace":
+        if peace_count >= 3:
+            return (
+                "停戦協議や緊張緩和の報道が相次ぎ、"
+                "投資家心理は改善傾向です。"
+                "金利・コモディティも安定し、上昇トレンドが持続しやすい環境です。"
+            )
+        else:
+            return (
+                "市場は落ち着きを取り戻しつつありますが、"
+                "平時ニュースはまだ限定的です。"
+                "慎重な押し目買いが機能しやすい局面です。"
+            )
+
+    else:  # 移行モード
+        return (
+            "市場は方向感を探る展開です。"
+            "戦時・平時ニュースが混在しており、"
+            "短期的には上下に振れやすい相場が続きそうです。"
+        )
+# ============================
+# メッセージ構築（ニュース統合版）
+# ============================
+def build_message(d):
+    prev_data = load_prev_data()
+    vix_p = d.get("vix_p") or 0
+    prev_vix = prev_data.get("vix_p") or 0
+    fgi = d.get("fgi_score") or 50
+
+    # ----------------------------
+    # ① RSSニュース取得
+    # ----------------------------
+    raw_news = fetch_rss_news(max_items=15)
+
+    # ----------------------------
+    # ② ニュース分類（戦時/平時/中立）
+    # ----------------------------
+    classified = classify_news_list(raw_news, keywords)
+
+    # ----------------------------
+    # ③ ニューススコア算出
+    # ----------------------------
+    news_war_score, news_peace_score = calculate_news_mode_score(classified)
+
+    # ----------------------------
+    # ④ 市場モード判定（ニュース統合版）
+    # ----------------------------
+    mode, mode_title = determine_market_mode(
+        vix_p, fgi, prev_vix, news_war_score, news_peace_score
+    )
+
+    # ----------------------------
+    # ⑤ 既存スコア計算（あなたのロジック）
+    # ----------------------------
+    score = 0
+    max_score = 155
+
+    if (d.get("nq_c") or 0) > 0:
+        score += 25
+    if (d.get("es_c") or 0) > 0:
+        score += 20
+    if (d.get("nk_c") or 0) > 0:
+        score += 20
+
+    if vix_p >= 30:
+        score += 25
+    elif vix_p >= 25:
+        score += 15
+    elif vix_p >= 20:
+        score += 5
+
+    if (d.get("spread") is not None) and d["spread"] < 0:
+        score += 20
+
+    if (d.get("btc_c") or 0) >= 3:
+        score += 20
+
+    scaled = min(max(int(score / max_score * 100), 0), 100)
+
+    def fmt(p, c, dec=2):
+        return f"{p:.{dec}f}（{c:+.2f}%）" if p is not None else "取得失敗"
+
+    # ----------------------------
+    # ⑥ 既存の ▼1〜6（市場データ）
+    # ----------------------------
+    msg = [
+        f"【{d.get('date')} {mode_title}】\n",
+        "▼ 1. 投資家心理 (FGI)",
+        f" {get_fgi_detail(d.get('fgi_score'), d.get('fgi_prev'))}\n",
+
+        "▼ 2. 主要指数先物 & 相対強弱",
+        f" ・米 NQ100 : {fmt(d.get('nq_p'), d.get('nq_c'))}",
+        f" ・米 S&P500: {fmt(d.get('es_p'), d.get('es_c'))}",
+        f" ・日経平均 : {fmt(d.get('nk_p'), d.get('nk_c'))}",
+        f" 💡 {get_equity_relative_comment(d.get('nk_c'), d.get('nq_c'), d.get('es_c'))}\n",
+
+        "▼ 3. リスク指標 (VIX)",
+        f" ・VIX現物: {fmt(d.get('vix_p'), d.get('vix_c'))}",
+        f" ・VIX先物: {fmt(d.get('vxf_p'), d.get('vxf_c'))}",
+        f" 💡 {get_vix_analysis(d.get('vix_p'), d.get('vxf_p'))}\n",
+
+        "▼ 4. 金利・イールド",
+        f" ・米10年債: {fmt(d.get('u10_p'), d.get('u10_c'))}",
+        f" ・米 2年債: {fmt(d.get('u2_p'), d.get('u2_c'))}",
+        (
+            f" ・利回り差: {d.get('spread'):.3f}"
+            if d.get("spread") is not None
+            else " ・利回り差: 失敗"
+        ),
+        f" 💡 {get_yield_detail(d.get('spread'))}\n",
+
+        "▼ 5. 商品 (Commodities)",
+        f" ・金 (Gold): {fmt(d.get('gold_p'), d.get('gold_c'), 1)}",
+        f" ・原油(WTI): {fmt(d.get('wti_p'), d.get('wti_c'))}",
+        f" ・銅 (Cop) : {fmt(d.get('cop_p'), d.get('cop_c'), 3)}",
+        f" 💡 {get_commodities_analysis(d.get('gold_c'), d.get('wti_c'), d.get('cop_c'))}\n",
+
+        "▼ 6. 仮想通貨 (Crypto)",
+        f" ・BTC: ${fmt(d.get('btc_p'), d.get('btc_c'), 0)}",
+        f" 💡 {get_btc_comment(d.get('btc_c'))}\n",
+
+        f"⚖️ 総合スコア：{scaled}点 / 100 （素点: {score} / {max_score}）",
+        f" {'📈 打診買い検討' if scaled >= 50 else '🌑 キャッシュ保護優先'}\n",
+        "--------------------------",
+    ]
+
+    # ----------------------------
+    # ⑦ ニュース一覧（本物のRSSニュース）
+    # ----------------------------
+    msg.append("▼ 7. 主要ニュース（RSS自動取得）")
+
+    if len(raw_news) == 0:
+        msg.append("・ニュース取得失敗")
+    else:
+        for item in raw_news[:5]:
+            msg.append(f"・{item['title']}（出所：{item['source']}）")
+
+    msg.append("--------------------------")
+
+    # ----------------------------
+    # ⑧ Copilot’s View（ニュース反映版）
+    # ----------------------------
+    view = generate_copilot_view_with_news(mode, classified)
+    msg.append("--- 🤖 Copilot's View ---")
+    msg.append(view)
+
+    return "\n".join(msg)
+
+
+# ============================
+# メイン
+# ============================
+def main():
+    data = get_market_data()
+    report = build_message(data)
+    send_line(report)
+
+
+if __name__ == "__main__":
+    main()
