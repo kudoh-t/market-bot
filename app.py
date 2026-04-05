@@ -1,34 +1,60 @@
 import os
+import requests
+import time
+
 from market_data import get_market_data
-from analysis import analyze_market
 from message_builder import build_message
-from news_engine import (
-    fetch_rss_news,
-    classify_news_list,
-    calculate_news_mode_score
-)
-#from send_line import send_line   # ← send_line が別ファイルなら修正
+
+# ============================
+# LINE送信
+# ============================
+
+def send_line(message):
+    access_token = os.getenv("LINE_ACCESS_TOKEN")
+    user_id = os.getenv("LINE_USER_ID")
+
+    if not access_token or not user_id:
+        print("LINE_ACCESS_TOKEN または LINE_USER_ID が設定されていません")
+        return
+
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}"
+    }
+    body = {
+        "to": user_id,
+        "messages": [{"type": "text", "text": message}]
+    }
+
+    for i in range(3):
+        try:
+            response = requests.post(url, headers=headers, json=body, timeout=10)
+            if response.status_code == 200:
+                print("LINE送信成功")
+                return
+            else:
+                print(f"LINE送信失敗（{i+1}回目）: {response.status_code} {response.text}")
+        except Exception as e:
+            print(f"LINE送信エラー（{i+1}回目）: {e}")
+
+        time.sleep(3)
+
+    print("LINE送信に失敗しました（リトライ上限）")
+
+
+# ============================
+# メイン処理
+# ============================
 
 def main():
     # ① 市場データ取得
     market = get_market_data()
 
-    # ② ニュース取得
-    news_list = fetch_rss_news()
+    # ② メッセージ生成（ニュース取得・分析は内部で実行）
+    report = build_message(market)
 
-    # ③ ニュース分類
-    classified_news = classify_news_list(news_list)
-
-    # ④ ニューススコア（戦時/平時）
-    war_score, peace_score = calculate_news_mode_score(classified_news)
-
-    # ⑤ 市場分析
-    analysis_result = analyze_market(market, classified_news, war_score, peace_score)
-
-    # ⑥ LINEメッセージ生成
-    report = build_message(market, classified_news, analysis_result)
-
-    # ⑦ LINE送信
+    # ③ LINE送信
     send_line(report)
 
 if __name__ == "__main__":
