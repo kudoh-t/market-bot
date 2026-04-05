@@ -3,50 +3,32 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-}
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
-def get_yf_data(ticker, period="5d"):
+def get_yf_data(ticker):
     try:
-        df = yf.download(ticker, period=period, interval="1d", progress=False)
+        df = yf.download(ticker, period="5d", interval="1d", progress=False)
         if df.empty or len(df) < 2: return None, None
-        # DataFrameでもSeriesでも対応可能に取得
-        close_series = df['Close'].iloc[:, 0] if isinstance(df['Close'], pd.DataFrame) else df['Close']
-        last = float(close_series.iloc[-1])
-        prev = float(close_series.iloc[-2])
+        close = df['Close'].iloc[:, 0] if isinstance(df['Close'], pd.DataFrame) else df['Close']
+        last, prev = float(close.iloc[-1]), float(close.iloc[-2])
         return last, ((last - prev) / prev) * 100
-    except:
-        return None, None
+    except: return None, None
 
 def get_fgi():
     try:
-        # CNNの内部APIを直接叩く方式に変更して安定化
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         res = requests.get(url, headers=headers, timeout=10)
-        data = res.json()
-        return int(data['fear_and_greed']['score']), int(data['fear_and_greed']['previous_close'])
-    except:
-        return None, None
+        d = res.json()
+        return int(d['fear_and_greed']['score']), int(d['fear_and_greed']['previous_close'])
+    except: return None, None
 
 def get_market_data():
     data = {"date": datetime.now().strftime("%Y.%m.%d")}
     data["fgi"], data["fgi_prev"] = get_fgi()
-    data["nq"] = get_yf_data("NQ=F")
-    data["spx"] = get_yf_data("ES=F")
-    data["nky"] = get_yf_data("NIY=F")
-    data["vix"] = get_yf_data("^VIX")
-    data["vix_f"] = get_yf_data("VX=F")
-    data["us10y"] = get_yf_data("^TNX")
-    data["us2y"] = get_yf_data("^IRX")
-    
-    if data["us10y"] and data["us10y"][0] is not None and data["us2y"] and data["us2y"][0] is not None:
-        data["yield_spread"] = data["us10y"][0] - data["us2y"][0]
-    else:
-        data["yield_spread"] = None
-
-    data["gold"] = get_yf_data("GC=F")
-    data["wti"] = get_yf_data("CL=F")
-    data["copper"] = get_yf_data("HG=F")
+    data["nq"], data["spx"], data["nky"] = get_yf_data("NQ=F"), get_yf_data("ES=F"), get_yf_data("NIY=F")
+    data["vix"], data["vix_f"] = get_yf_data("^VIX"), get_yf_data("VX=F")
+    data["us10y"], data["us2y"] = get_yf_data("^TNX"), get_yf_data("^IRX")
+    data["yield_spread"] = (data["us10y"][0] - data["us2y"][0]) if (data["us10y"][0] and data["us2y"][0]) else None
+    data["gold"], data["wti"], data["copper"] = get_yf_data("GC=F"), get_yf_data("CL=F"), get_yf_data("HG=F")
     data["btc"] = get_yf_data("BTC-USD")
     return data
