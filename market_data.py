@@ -10,6 +10,32 @@ headers = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+def get_tradingview_index(symbol):
+    """
+    TradingView の JSON API から指数を取得する
+    symbol: "TVC:TOPX", "INDEX:JMOTHERS" など
+    """
+    try:
+        url = f"https://api.tradingview.com/markets/public/quotes?symbols={symbol}"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json",
+        }
+        res = requests.get(url, headers=headers, timeout=10).json()
+
+        data = res["data"][0]
+        last = data["lp"]      # last price
+        prev = data["pc"]      # previous close
+
+        if last is None or prev is None:
+            return None, None
+
+        change = (last - prev) / prev * 100
+        return float(last), float(change)
+
+    except Exception:
+        return None, None
+
 def get_investing_index(index_id):
     """
     Investing.com のインデックスを取得する
@@ -148,15 +174,13 @@ def get_vix_futures_safe(vix_price, vix_change):
 def get_japan_indices():
     nikkei = get_yf_data("^N225")
 
-    # TOPIX（Investing.com）
-    topix = get_investing_index(166)
+    # TOPIX（TradingView）
+    topix = get_tradingview_index("TVC:TOPX")
 
-    # マザーズ（Investing.com）
-    mothers = get_investing_index(40820)
+    # マザーズ（TradingView）
+    mothers = get_tradingview_index("INDEX:JMOTHERS")
 
     return nikkei, topix, mothers
-
-
 # ============================
 # 米国市場
 # ============================
