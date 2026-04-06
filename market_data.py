@@ -459,7 +459,8 @@ def get_market_data():
 
     # FGI
     data["fgi"], data["fgi_prev"] = get_fgi()
-
+    data["fgi_comment"] = generate_fgi_comment(data)
+    
     # 先物（参考用）
     data["nq"], data["spx"], data["nky"] = (
         get_yf_data("NQ=F"),
@@ -480,6 +481,7 @@ def get_market_data():
 
     # VIX先物
     data["vix_f"], data["vix_f_est"] = get_vix_futures_safe(vix_price, vix_change)
+    data["vix_comment"] = generate_vix_comment(data)
 
     # 金利
     data["us10y"], data["us2y"] = get_yf_data("^TNX"), get_yf_data("^IRX")
