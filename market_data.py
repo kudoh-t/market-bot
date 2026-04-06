@@ -434,7 +434,7 @@ def get_market_data():
     data["eth"] = get_eth()
 
     # スコア・コメント類
-    data["score"], data["raw_score"], data["judge"] = generate_score(data)
+    data["score"], data["raw_score"], data["raw_max"], data["judge"] = generate_score(data)
     data["comment"] = generate_comment(data)
     data["copilot_view"] = generate_copilot_view(data)
 
