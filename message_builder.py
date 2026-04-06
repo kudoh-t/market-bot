@@ -59,6 +59,7 @@ def build_message(d):
         "▼ 0. 投資家心理 (FGI)",
         f" ・FGI: {safe_fmt(d.get('fgi'))}",
         f" ・前日比: {safe_fmt(d.get('fgi_prev'))}\n",
+        f" ・コメント: {d.get('fgi_comment')}\n",
     ]
 
     section_japan = [
@@ -80,6 +81,7 @@ def build_message(d):
         "▼ 3. リスク指標 (VIX)",
         f" ・VIX現物: {safe_fmt(d.get('vix'))}",
         f" ・VIX先物{'※推定値' if d.get('vix_f_est') else ''}: {safe_fmt(d.get('vix_f'))}\n",
+        f" ・コメント: {d.get('vix_comment')}\n",
     ]
 
     section_fx = [
