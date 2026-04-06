@@ -1,7 +1,3 @@
-# ============================
-#  message_builder.py（完全版）
-# ============================
-
 def safe_fmt(value):
     if value is None:
         return "N/A"
@@ -32,9 +28,6 @@ def fmt_change(diff):
     return f"{sign}{diff:.2f}%"
 
 
-# ============================
-# タイトル生成
-# ============================
 def generate_title(data):
     date = data.get("date", "0000.00.00")
 
@@ -57,14 +50,9 @@ def generate_title(data):
     return f"【{date} {icon}{mode}：総合反転スコア】"
 
 
-# ============================
-# メインメッセージ生成
-# ============================
 def build_message(d):
-
     title = generate_title(d)
 
-    # --- 0. FGI ---
     section_fgi = [
         title,
         "",
@@ -73,7 +61,6 @@ def build_message(d):
         f" ・前日比: {safe_fmt(d.get('fgi_prev'))}\n",
     ]
 
-    # --- 1. 日本市場 ---
     section_japan = [
         "▼ 1. 日本市場",
         f" ・日経平均: {safe_fmt(d.get('nikkei'))}",
@@ -81,69 +68,65 @@ def build_message(d):
         f" ・マザーズ: {safe_fmt(d.get('mothers'))}\n",
     ]
 
-    # --- 2. 米国市場 ---
     section_us = [
         "▼ 2. 米国市場",
         f" ・NYダウ: {safe_fmt(d.get('dow'))}",
         f" ・S&P500: {safe_fmt(d.get('sp500'))}",
-        f" ・NASDAQ: {safe_fmt(d.get('nasdaq'))}\n",
+        f" ・NASDAQ: {safe_fmt(d.get('nasdaq'))}",
+        f" ・コメント: {d.get('us_comment')}\n",
     ]
 
-    # --- 3. リスク指標 ---
     section_vix = [
         "▼ 3. リスク指標 (VIX)",
         f" ・VIX現物: {safe_fmt(d.get('vix'))}",
         f" ・VIX先物{'※推定値' if d.get('vix_f_est') else ''}: {safe_fmt(d.get('vix_f'))}\n",
     ]
 
-    # --- 4. 為替 ---
     section_fx = [
         "▼ 4. 為替",
         f" ・USD/JPY: {safe_fmt(d.get('usd_jpy'))}",
         f" ・EUR/JPY: {safe_fmt(d.get('eur_jpy'))}",
-        f" ・CNY/JPY: {safe_fmt(d.get('cny_jpy'))}\n",
+        f" ・CNY/JPY: {safe_fmt(d.get('cny_jpy'))}",
+        f" ・コメント: {d.get('fx_comment')}\n",
     ]
 
-    # --- 5. 商品 ---
     section_commodities = [
         "▼ 5. 商品",
         f" ・原油(WTI): {safe_fmt(d.get('wti'))}",
         f" ・金 (Gold): {safe_fmt(d.get('gold'))}",
         f" ・銀 (Silver): {safe_fmt(d.get('silver'))}",
         f" ・銅 (Copper): {safe_fmt(d.get('copper'))}",
-        f" ・天然ガス: {safe_fmt(d.get('natgas'))}\n",
+        f" ・天然ガス: {safe_fmt(d.get('natgas'))}",
+        f" ・コメント: {d.get('commodities_comment')}\n",
     ]
 
-    # --- 6. 金利 ---
     section_rates = [
         "▼ 6. 金利",
         f" ・米10年債: {safe_fmt(d.get('us10y'))}",
         f" ・米2年債: {safe_fmt(d.get('us2y'))}",
-        f" ・イールド差: {fmt_number(d.get('yield_spread'))}\n",
+        f" ・イールド差: {fmt_number(d.get('yield_spread'))}",
+        f" ・コメント: {d.get('rates_comment')}\n",
     ]
 
-    # --- 7. 仮想通貨 ---
     section_crypto = [
         "▼ 7. 仮想通貨",
         f" ・BTC: {safe_fmt(d.get('btc'))}",
-        f" ・ETH: {safe_fmt(d.get('eth'))}\n",
+        f" ・ETH: {safe_fmt(d.get('eth'))}",
+        f" ・コメント: {d.get('crypto_comment')}\n",
     ]
 
-    # --- 8. コメント ---
     section_comment = [
         "▼ 8. コメント",
         d.get("comment", "N/A"),
         "\n",
     ]
 
-    # --- 9. Copilot View ---
     section_copilot = [
         "▼ 9. Copilot View",
         d.get("copilot_view", "N/A"),
         "\n",
     ]
 
-    # --- 10. 総合スコア ---
     section_score = [
         "▼ 10. 総合スコア",
         f" ・スコア: {d.get('score', 'N/A')} / 100",

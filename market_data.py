@@ -122,7 +122,7 @@ def get_vix_futures_safe(vix_price, vix_change):
 # ============================
 def get_japan_indices():
     nikkei = get_yf_data("^N225")
-    topix = get_yf_data("^TOPX")      # Yahoo 側の仕様変更で取れないことがある
+    topix = get_yf_data("^TOPX")      # 取れない場合は (None, None)
     mothers = get_yf_data("^MOTHERS") # 同上
     return nikkei, topix, mothers
 
@@ -250,7 +250,7 @@ def score_rate(us10y_tuple):
 
 
 # ============================
-# 正しい generate_score（統一版）
+# 総合スコア
 # ============================
 def generate_score(data):
     raw = 0
@@ -282,7 +282,7 @@ def generate_score(data):
 
 
 # ============================
-# コメント生成
+# 総合コメント
 # ============================
 def generate_comment(data):
     vix = get_price(data.get("vix"))
@@ -313,6 +313,75 @@ def generate_comment(data):
         return "大きな方向感は乏しく、様子見ムードの相場です。"
 
     return " ".join(parts)
+
+
+# ============================
+# 各セクションコメント
+# ============================
+def generate_us_comment(data):
+    sp = get_change(data.get("sp500"))
+
+    if sp is None:
+        return "米国市場のデータが取得できませんでした。"
+
+    if sp >= 1.0:
+        return "米国株は堅調で、投資家心理は改善傾向です。"
+    if sp <= -1.0:
+        return "米国株は下落しており、リスク回避姿勢が強まっています。"
+    return "米国市場は小動きで、方向感に欠ける展開です。"
+
+
+def generate_fx_comment(data):
+    usd = get_change(data.get("usd_jpy"))
+    if usd is None:
+        return "為替データが取得できませんでした。"
+
+    if usd >= 0.5:
+        return "ドル円は上昇しており、円安方向の動きです。"
+    if usd <= -0.5:
+        return "ドル円は下落しており、円高方向の動きです。"
+    return "為替は落ち着いた値動きです。"
+
+
+def generate_commodities_comment(data):
+    wti = get_change(data.get("wti"))
+
+    if wti is None:
+        return "商品市場のデータが取得できませんでした。"
+
+    if wti >= 2.0:
+        return "原油価格が上昇しており、インフレ懸念が意識されやすい状況です。"
+    if wti <= -2.0:
+        return "原油価格が下落しており、インフレ圧力はやや和らいでいます。"
+    return "商品市場は比較的落ち着いた動きです。"
+
+
+def generate_rates_comment(data):
+    us10 = get_change(data.get("us10y"))
+    spread = data.get("yield_spread")
+
+    if us10 is None:
+        return "金利データが取得できませんでした。"
+
+    if spread is not None and spread < 0:
+        return "イールドカーブは逆転しており、景気後退懸念が意識されます。"
+    if us10 <= -0.05:
+        return "長期金利が低下しており、金融環境はやや緩和方向です。"
+    if us10 >= 0.05:
+        return "長期金利が上昇しており、金融環境は引き締まり方向です。"
+    return "金利は大きな変動なく推移しています。"
+
+
+def generate_crypto_comment(data):
+    btc = get_change(data.get("btc"))
+    if btc is None:
+        return "仮想通貨市場のデータが取得できませんでした。"
+
+    if btc >= 2.0:
+        return "BTCは強い上昇を見せており、リスク選好が強まっています。"
+    if btc <= -2.0:
+        return "BTCは下落しており、リスク回避姿勢が見られます。"
+    return "仮想通貨市場は落ち着いた動きです。"
 
 
 # ============================
@@ -409,6 +478,11 @@ def get_market_data():
     # スコア・コメント類
     data["score"], data["raw_score"], data["raw_max"], data["judge"] = generate_score(data)
     data["comment"] = generate_comment(data)
+    data["us_comment"] = generate_us_comment(data)
+    data["fx_comment"] = generate_fx_comment(data)
+    data["commodities_comment"] = generate_commodities_comment(data)
+    data["rates_comment"] = generate_rates_comment(data)
+    data["crypto_comment"] = generate_crypto_comment(data)
     data["copilot_view"] = generate_copilot_view(data)
 
     return data
