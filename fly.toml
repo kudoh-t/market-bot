@@ -15,9 +15,11 @@ primary_region = 'nrt'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  # 'stop' を false に書き換え
+  auto_stop_machines = false    
   auto_start_machines = true
-  min_machines_running = 0
+  # 0 を 1 に書き換え（常に最低1台動かす）
+  min_machines_running = 1      
   processes = ['app']
 
 [[vm]]
