@@ -59,3 +59,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+   # Fly.io では環境変数 PORT が割り当てられるため、それを使うのがベストです
+    port = int(os.environ.get("PORT", 8080))
+    # host は必ず "0.0.0.0" に設定してください
+    app.run(host="0.0.0.0", port=port) 
