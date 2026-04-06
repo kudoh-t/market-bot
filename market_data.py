@@ -14,7 +14,18 @@ headers = {
 }
 
 # ============================================
-# TradingView（tvcdn）指数取得
+# 汎用ユーティリティ
+# ============================================
+def get_change(t):
+    return None if not t or t[1] is None else t[1]
+
+
+def get_price(t):
+    return None if not t or t[0] is None else t[0]
+
+
+# ============================================
+# TradingView（tvcdn）汎用取得
 # ============================================
 def get_tradingview_index(symbol):
     """
@@ -39,8 +50,37 @@ def get_tradingview_index(symbol):
     except Exception:
         return None, None
 
+
+def get_from_tradingview_symbol(symbol):
+    """
+    TradingView CDN から汎用価格を取得
+    symbol例:
+      株価指数: "TVC:SPX", "TVC:DJI", "TVC:N225"
+      為替: "FX:USDJPY", "FX:EURJPY"
+      商品: "TVC:USOIL", "TVC:GOLD"
+      仮想通貨: "CRYPTO:BTCUSD", "CRYPTO:ETHUSD"
+    """
+    try:
+        url = (
+            "https://dce-front-cdn.tvcdn.net/charts/history"
+            f"?symbol={symbol}&resolution=1D&count=2"
+        )
+        res = requests.get(url, headers=headers, timeout=10).json()
+
+        if "c" not in res or len(res["c"]) < 2:
+            return None, None
+
+        last = res["c"][-1]
+        prev = res["c"][-2]
+        change = (last - prev) / prev * 100
+
+        return float(last), float(change)
+    except Exception:
+        return None, None
+
+
 # ============================================
-# Yahoo Finance 汎用取得
+# Yahoo Finance 汎用取得（単独）
 # ============================================
 def get_yf_data(ticker):
     try:
@@ -55,12 +95,57 @@ def get_yf_data(ticker):
         return None, None
 
 
-def get_change(t):
-    return None if not t or t[1] is None else t[1]
+# ============================================
+# Investing.com（最終バックアップ・任意）
+# ============================================
+def get_from_investing(url):
+    """
+    Investing.com HTML から終値と変化率を取得（簡易版）
+    ※使う場合は実際のURLを渡すこと
+    """
+    try:
+        res = requests.get(url, headers=headers, timeout=10).text
+        import re
+
+        m = re.search(r'lastPrice":"([\d\.]+)"', res)
+        p = re.search(r'priceChangePercent":"([\-\d\.]+)"', res)
+        if not m or not p:
+            return None, None
+        last = float(m.group(1))
+        change = float(p.group(1))
+        return last, change
+    except Exception:
+        return None, None
 
 
-def get_price(t):
-    return None if not t or t[0] is None else t[0]
+# ============================================
+# 多重化ラッパー：TradingView → Yahoo → Investing
+# ============================================
+def get_price_smart(ticker, tv_symbol=None, investing_url=None):
+    """
+    多重化された価格取得
+    1. TradingView（tv_symbol が指定されている場合）
+    2. Yahoo Finance（yfinance）
+    3. Investing.com（investing_url が指定されている場合）
+    """
+    # 1. TradingView
+    if tv_symbol:
+        tv = get_from_tradingview_symbol(tv_symbol)
+        if tv[0] is not None:
+            return tv
+
+    # 2. Yahoo
+    yf_data = get_yf_data(ticker)
+    if yf_data[0] is not None:
+        return yf_data
+
+    # 3. Investing.com
+    if investing_url:
+        inv = get_from_investing(investing_url)
+        if inv[0] is not None:
+            return inv
+
+    return None, None
 
 
 # ============================================
@@ -131,40 +216,42 @@ def get_vix_futures_safe(vix_price, vix_change):
 
 
 # ============================================
-# 日本市場（TradingView）
+# 日本市場（多重化）
 # ============================================
 def get_japan_indices():
-    nikkei = get_yf_data("^N225")
+    # 日経平均：TradingView → Yahoo
+    nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
+    # TOPIX / マザーズ：既存の TradingView 関数
     topix = get_tradingview_index("TVC:TOPX")
     mothers = get_tradingview_index("INDEX:JMOTHERS")
     return nikkei, topix, mothers
 
 
 # ============================================
-# 米国市場
+# 米国市場（多重化）
 # ============================================
 def get_us_indices():
-    dow = get_yf_data("^DJI")
-    sp500 = get_yf_data("^GSPC")
-    nasdaq = get_yf_data("^IXIC")
+    dow = get_price_smart("^DJI", tv_symbol="TVC:DJI")
+    sp500 = get_price_smart("^GSPC", tv_symbol="TVC:SPX")
+    nasdaq = get_price_smart("^IXIC", tv_symbol="TVC:IXIC")
     return dow, sp500, nasdaq
 
 
 # ============================================
-# 為替
+# 為替（多重化）
 # ============================================
 def get_fx():
-    usd_jpy = get_yf_data("JPY=X")
-    eur_jpy = get_yf_data("EURJPY=X")
-    cny_jpy = get_yf_data("CNYJPY=X")
+    usd_jpy = get_price_smart("JPY=X", tv_symbol="FX:USDJPY")
+    eur_jpy = get_price_smart("EURJPY=X", tv_symbol="FX:EURJPY")
+    cny_jpy = get_price_smart("CNYJPY=X", tv_symbol="FX:CNYJPY")
     return usd_jpy, eur_jpy, cny_jpy
 
 
 # ============================================
-# 仮想通貨
+# 仮想通貨（多重化）
 # ============================================
 def get_eth():
-    return get_yf_data("ETH-USD")
+    return get_price_smart("ETH-USD", tv_symbol="CRYPTO:ETHUSD")
 
 
 # ============================================
@@ -463,8 +550,8 @@ def get_market_data():
     # 米国市場
     data["dow"], data["sp500"], data["nasdaq"] = get_us_indices()
 
-    # VIX現物
-    data["vix"] = get_yf_data("^VIX")
+    # VIX現物（多重化：TradingView → Yahoo）
+    data["vix"] = get_price_smart("^VIX", tv_symbol="TVC:VIX")
     vix_price = data["vix"][0] if data["vix"] else None
     vix_change = data["vix"][1] if data["vix"] else None
 
@@ -472,27 +559,26 @@ def get_market_data():
     data["vix_f"], data["vix_f_est"] = get_vix_futures_safe(vix_price, vix_change)
     data["vix_comment"] = generate_vix_comment(data)
 
-    # 金利
-    data["us10y"], data["us2y"] = get_yf_data("^TNX"), get_yf_data("^IRX")
+    # 金利（多重化）
+    data["us10y"] = get_price_smart("^TNX", tv_symbol="TVC:US10Y")
+    data["us2y"] = get_price_smart("^IRX")  # 2年はTVシンボル不明のためYahoo優先
     if data["us10y"][0] is not None and data["us2y"][0] is not None:
         data["yield_spread"] = data["us10y"][0] - data["us2y"][0]
     else:
         data["yield_spread"] = None
 
-    # コモディティ
-    data["gold"], data["wti"], data["copper"], data["silver"], data["natgas"] = (
-        get_yf_data("GC=F"),
-        get_yf_data("CL=F"),
-        get_yf_data("HG=F"),
-        get_yf_data("SI=F"),
-        get_yf_data("NG=F"),
-    )
+    # コモディティ（多重化）
+    data["gold"] = get_price_smart("GC=F", tv_symbol="TVC:GOLD")
+    data["wti"] = get_price_smart("CL=F", tv_symbol="TVC:USOIL")
+    data["copper"] = get_price_smart("HG=F", tv_symbol="TVC:HG1!")
+    data["silver"] = get_price_smart("SI=F", tv_symbol="TVC:SILVER")
+    data["natgas"] = get_price_smart("NG=F", tv_symbol="TVC:NATGAS")
 
-    # 為替
+    # 為替（多重化）
     data["usd_jpy"], data["eur_jpy"], data["cny_jpy"] = get_fx()
 
-    # 仮想通貨
-    data["btc"] = get_yf_data("BTC-USD")
+    # 仮想通貨（多重化）
+    data["btc"] = get_price_smart("BTC-USD", tv_symbol="CRYPTO:BTCUSD")
     data["eth"] = get_eth()
 
     # スコア・コメント類
