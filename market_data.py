@@ -27,56 +27,41 @@ def get_price(t):
 # ============================================
 # TradingView（tvcdn）汎用取得
 # ============================================
+def _tv_history(symbol, resolution="1D", count=2):
+    try:
+        url = (
+            "https://dce-front-cdn.tvcdn.net/charts/history"
+            f"?symbol={symbol}&resolution={resolution}&count={count}"
+        )
+        res = requests.get(url, headers=headers, timeout=10).json()
+        if "c" not in res or len(res["c"]) < 2:
+            return None, None
+        last = float(res["c"][-1])
+        prev = float(res["c"][-2])
+        change = (last - prev) / prev * 100
+        return last, change
+    except Exception:
+        return None, None
+
+
 def get_tradingview_index(symbol):
     """
     TradingView CDN から指数を取得する
     symbol: "TVC:TOPX", "INDEX:JMOTHERS" など
     """
-    try:
-        url = (
-            "https://dce-front-cdn.tvcdn.net/charts/history"
-            f"?symbol={symbol}&resolution=1D&count=2"
-        )
-        res = requests.get(url, headers=headers, timeout=10).json()
-
-        if "c" not in res or len(res["c"]) < 2:
-            return None, None
-
-        last = res["c"][-1]
-        prev = res["c"][-2]
-        change = (last - prev) / prev * 100
-
-        return float(last), float(change)
-    except Exception:
-        return None, None
+    return _tv_history(symbol)
 
 
 def get_from_tradingview_symbol(symbol):
     """
     TradingView CDN から汎用価格を取得
-    symbol例:
+    例:
       株価指数: "TVC:SPX", "TVC:DJI", "TVC:N225"
       為替: "FX:USDJPY", "FX:EURJPY"
       商品: "TVC:USOIL", "TVC:GOLD"
       仮想通貨: "CRYPTO:BTCUSD", "CRYPTO:ETHUSD"
     """
-    try:
-        url = (
-            "https://dce-front-cdn.tvcdn.net/charts/history"
-            f"?symbol={symbol}&resolution=1D&count=2"
-        )
-        res = requests.get(url, headers=headers, timeout=10).json()
-
-        if "c" not in res or len(res["c"]) < 2:
-            return None, None
-
-        last = res["c"][-1]
-        prev = res["c"][-2]
-        change = (last - prev) / prev * 100
-
-        return float(last), float(change)
-    except Exception:
-        return None, None
+    return _tv_history(symbol)
 
 
 # ============================================
@@ -87,7 +72,6 @@ def get_yf_data(ticker):
         df = yf.download(ticker, period="5d", interval="1d", progress=False)
         if df.empty or len(df) < 2:
             return None, None
-
         close = df["Close"]
         last, prev = float(close.iloc[-1]), float(close.iloc[-2])
         return last, ((last - prev) / prev) * 100
@@ -106,7 +90,6 @@ def get_from_investing(url):
     try:
         res = requests.get(url, headers=headers, timeout=10).text
         import re
-
         m = re.search(r'lastPrice":"([\d\.]+)"', res)
         p = re.search(r'priceChangePercent":"([\-\d\.]+)"', res)
         if not m or not p:
@@ -219,9 +202,7 @@ def get_vix_futures_safe(vix_price, vix_change):
 # 日本市場（多重化）
 # ============================================
 def get_japan_indices():
-    # 日経平均：TradingView → Yahoo
     nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
-    # TOPIX / マザーズ：既存の TradingView 関数
     topix = get_tradingview_index("TVC:TOPX")
     mothers = get_tradingview_index("INDEX:JMOTHERS")
     return nikkei, topix, mothers
