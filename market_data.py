@@ -1,8 +1,10 @@
 import yfinance as yf
 import requests
-import pandas as pd
 from datetime import datetime
 
+# ============================================
+# 共通ヘッダー
+# ============================================
 headers = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -10,68 +12,43 @@ headers = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+
+# ============================================
+# TradingView（tvcdn）指数取得
+# ============================================
 def get_tradingview_index(symbol):
     """
-    TradingView の JSON API から指数を取得する
+    TradingView CDN から指数を取得する
     symbol: "TVC:TOPX", "INDEX:JMOTHERS" など
     """
     try:
-        url = f"https://api.tradingview.com/markets/public/quotes?symbols={symbol}"
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json",
-        }
+        url = (
+            "https://dce-front-cdn.tvcdn.net/charts/history"
+            f"?symbol={symbol}&resolution=1D&count=2"
+        )
         res = requests.get(url, headers=headers, timeout=10).json()
 
-        data = res["data"][0]
-        last = data["lp"]      # last price
-        prev = data["pc"]      # previous close
-
-        if last is None or prev is None:
+        if "c" not in res or len(res["c"]) < 2:
             return None, None
 
-        change = (last - prev) / prev * 100
-        return float(last), float(change)
-
-    except Exception:
-        return None, None
-
-def get_investing_index(index_id):
-    """
-    Investing.com のインデックスを取得する
-    index_id: TOPIX=166, Mothers=40820
-    """
-    try:
-        url = f"https://api.investing.com/api/financialdata/{index_id}/historical/chart"
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json",
-        }
-        res = requests.get(url, headers=headers, timeout=10).json()
-
-        prices = res["data"]["candles"]
-        if len(prices) < 2:
-            return None, None
-
-        last = prices[-1][4]   # 終値
-        prev = prices[-2][4]   # 前日終値
+        last = res["c"][-1]
+        prev = res["c"][-2]
         change = (last - prev) / prev * 100
 
         return float(last), float(change)
-
     except Exception:
         return None, None
 
-# ============================
-# 汎用：Yahoo Finance 取得
-# ============================
+# ============================================
+# Yahoo Finance 汎用取得
+# ============================================
 def get_yf_data(ticker):
     try:
         df = yf.download(ticker, period="5d", interval="1d", progress=False)
         if df.empty or len(df) < 2:
             return None, None
 
-        close = df["Close"].iloc[:, 0] if isinstance(df["Close"], pd.DataFrame) else df["Close"]
+        close = df["Close"]
         last, prev = float(close.iloc[-1]), float(close.iloc[-2])
         return last, ((last - prev) / prev) * 100
     except Exception:
@@ -79,33 +56,30 @@ def get_yf_data(ticker):
 
 
 def get_change(t):
-    if not t or t[1] is None:
-        return None
-    return t[1]
+    return None if not t or t[1] is None else t[1]
 
 
 def get_price(t):
-    if not t or t[0] is None:
-        return None
-    return t[0]
+    return None if not t or t[0] is None else t[0]
 
 
-# ============================
+# ============================================
 # FGI
-# ============================
+# ============================================
 def get_fgi():
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-        res = requests.get(url, headers=headers, timeout=10)
-        d = res.json()
-        return int(d["fear_and_greed"]["score"]), int(d["fear_and_greed"]["previous_close"])
+        res = requests.get(url, headers=headers, timeout=10).json()
+        return int(res["fear_and_greed"]["score"]), int(
+            res["fear_and_greed"]["previous_close"]
+        )
     except Exception:
         return None, None
 
 
-# ============================
-# VIX先物：Yahoo Finance
-# ============================
+# ============================================
+# VIX先物（Yahoo → FMP → 推定）
+# ============================================
 def get_vix_futures_yahoo():
     urls = [
         "https://query1.finance.yahoo.com/v8/finance/chart/VX=F",
@@ -113,24 +87,18 @@ def get_vix_futures_yahoo():
         "https://query3.finance.yahoo.com/v8/finance/chart/VX=F",
         "https://query4.finance.yahoo.com/v8/finance/chart/VX=F",
     ]
-
     for url in urls:
         try:
-            res = requests.get(url, timeout=5)
-            j = res.json()
+            j = requests.get(url, timeout=5).json()
             meta = j["chart"]["result"][0]["meta"]
             last = meta["regularMarketPrice"]
             prev = meta["chartPreviousClose"]
             return last, (last - prev) / prev * 100
         except Exception:
             continue
-
     return None, None
 
 
-# ============================
-# VIX先物：FMP
-# ============================
 def get_vix_futures_fmp():
     try:
         url = "https://financialmodelingprep.com/api/v3/quote/VX=F?apikey=demo"
@@ -144,18 +112,12 @@ def get_vix_futures_fmp():
         return None, None
 
 
-# ============================
-# VIX先物：推定
-# ============================
 def estimate_vix_futures(vix_price, vix_change):
     if vix_price is None or vix_change is None:
         return None, None
     return vix_price, vix_change * 0.8
 
 
-# ============================
-# VIX先物：フェイルオーバー
-# ============================
 def get_vix_futures_safe(vix_price, vix_change):
     vxf = get_vix_futures_yahoo()
     if vxf[0] is not None:
@@ -168,22 +130,19 @@ def get_vix_futures_safe(vix_price, vix_change):
     return estimate_vix_futures(vix_price, vix_change), True
 
 
-# ============================
-# 日本市場
-# ============================
+# ============================================
+# 日本市場（TradingView）
+# ============================================
 def get_japan_indices():
     nikkei = get_yf_data("^N225")
-
-    # TOPIX（TradingView）
     topix = get_tradingview_index("TVC:TOPX")
-
-    # マザーズ（TradingView）
     mothers = get_tradingview_index("INDEX:JMOTHERS")
-
     return nikkei, topix, mothers
-# ============================
+
+
+# ============================================
 # 米国市場
-# ============================
+# ============================================
 def get_us_indices():
     dow = get_yf_data("^DJI")
     sp500 = get_yf_data("^GSPC")
@@ -191,9 +150,9 @@ def get_us_indices():
     return dow, sp500, nasdaq
 
 
-# ============================
+# ============================================
 # 為替
-# ============================
+# ============================================
 def get_fx():
     usd_jpy = get_yf_data("JPY=X")
     eur_jpy = get_yf_data("EURJPY=X")
@@ -201,16 +160,16 @@ def get_fx():
     return usd_jpy, eur_jpy, cny_jpy
 
 
-# ============================
-# 仮想通貨 ETH
-# ============================
+# ============================================
+# 仮想通貨
+# ============================================
 def get_eth():
     return get_yf_data("ETH-USD")
 
 
-# ============================
+# ============================================
 # スコアロジック
-# ============================
+# ============================================
 def score_fgi(fgi):
     if fgi is None:
         return 0
@@ -303,12 +262,8 @@ def score_rate(us10y_tuple):
     return 0
 
 
-# ============================
-# 総合スコア
-# ============================
 def generate_score(data):
     raw = 0
-
     raw += score_fgi(data.get("fgi"))
     raw += score_vix(data.get("vix"))
     raw += score_us_equity(data.get("sp500"))
@@ -317,8 +272,7 @@ def generate_score(data):
     raw += score_wti(data.get("wti"))
     raw += score_rate(data.get("us10y"))
 
-    raw_max = 50  # 固定
-
+    raw_max = 50
     score = int((raw / raw_max) * 100)
 
     if score >= 80:
@@ -335,14 +289,13 @@ def generate_score(data):
     return score, raw, raw_max, judge
 
 
-# ============================
-# 総合コメント
-# ============================
+# ============================================
+# コメント生成
+# ============================================
 def generate_fgi_comment(data):
     fgi = data.get("fgi")
     if fgi is None:
         return "FGIデータが取得できませんでした。"
-
     if fgi < 20:
         return "FGIは極端な恐怖水準で、投資家心理はかなり弱気です。"
     if fgi < 40:
@@ -358,7 +311,6 @@ def generate_vix_comment(data):
     vix = get_price(data.get("vix"))
     if vix is None:
         return "VIXデータが取得できませんでした。"
-
     if vix < 15:
         return "VIXは低水準で、市場は過度に落ち着いた状態です。"
     if vix < 20:
@@ -368,6 +320,7 @@ def generate_vix_comment(data):
     if vix < 30:
         return "VIXは警戒感が高まっており、リスク管理が重要です。"
     return "VIXは高水準で、リスクオフの動きが強まっています。"
+
 
 def generate_comment(data):
     vix = get_price(data.get("vix"))
@@ -400,15 +353,10 @@ def generate_comment(data):
     return " ".join(parts)
 
 
-# ============================
-# 各セクションコメント
-# ============================
 def generate_us_comment(data):
     sp = get_change(data.get("sp500"))
-
     if sp is None:
         return "米国市場のデータが取得できませんでした。"
-
     if sp >= 1.0:
         return "米国株は堅調で、投資家心理は改善傾向です。"
     if sp <= -1.0:
@@ -420,7 +368,6 @@ def generate_fx_comment(data):
     usd = get_change(data.get("usd_jpy"))
     if usd is None:
         return "為替データが取得できませんでした。"
-
     if usd >= 0.5:
         return "ドル円は上昇しており、円安方向の動きです。"
     if usd <= -0.5:
@@ -430,10 +377,8 @@ def generate_fx_comment(data):
 
 def generate_commodities_comment(data):
     wti = get_change(data.get("wti"))
-
     if wti is None:
         return "商品市場のデータが取得できませんでした。"
-
     if wti >= 2.0:
         return "原油価格が上昇しており、インフレ懸念が意識されやすい状況です。"
     if wti <= -2.0:
@@ -444,10 +389,8 @@ def generate_commodities_comment(data):
 def generate_rates_comment(data):
     us10 = get_change(data.get("us10y"))
     spread = data.get("yield_spread")
-
     if us10 is None:
         return "金利データが取得できませんでした。"
-
     if spread is not None and spread < 0:
         return "イールドカーブは逆転しており、景気後退懸念が意識されます。"
     if us10 <= -0.05:
@@ -461,7 +404,6 @@ def generate_crypto_comment(data):
     btc = get_change(data.get("btc"))
     if btc is None:
         return "仮想通貨市場のデータが取得できませんでした。"
-
     if btc >= 2.0:
         return "BTCは強い上昇を見せており、リスク選好が強まっています。"
     if btc <= -2.0:
@@ -469,9 +411,9 @@ def generate_crypto_comment(data):
     return "仮想通貨市場は落ち着いた動きです。"
 
 
-# ============================
+# ============================================
 # Copilot View
-# ============================
+# ============================================
 def generate_copilot_view(data):
     fgi = data.get("fgi")
     vix = get_price(data.get("vix"))
@@ -505,22 +447,15 @@ def generate_copilot_view(data):
     return "\n".join(lines)
 
 
-# ============================
+# ============================================
 # メイン：市場データ取得
-# ============================
+# ============================================
 def get_market_data():
     data = {"date": datetime.now().strftime("%Y.%m.%d")}
 
     # FGI
     data["fgi"], data["fgi_prev"] = get_fgi()
     data["fgi_comment"] = generate_fgi_comment(data)
-    
-    # 先物（参考用）
-    data["nq"], data["spx"], data["nky"] = (
-        get_yf_data("NQ=F"),
-        get_yf_data("ES=F"),
-        get_yf_data("NIY=F"),
-    )
 
     # 日本市場
     data["nikkei"], data["topix"], data["mothers"] = get_japan_indices()
@@ -539,8 +474,6 @@ def get_market_data():
 
     # 金利
     data["us10y"], data["us2y"] = get_yf_data("^TNX"), get_yf_data("^IRX")
-
-    # スプレッド
     if data["us10y"][0] is not None and data["us2y"][0] is not None:
         data["yield_spread"] = data["us10y"][0] - data["us2y"][0]
     else:
@@ -563,7 +496,9 @@ def get_market_data():
     data["eth"] = get_eth()
 
     # スコア・コメント類
-    data["score"], data["raw_score"], data["raw_max"], data["judge"] = generate_score(data)
+    data["score"], data["raw_score"], data["raw_max"], data["judge"] = generate_score(
+        data
+    )
     data["comment"] = generate_comment(data)
     data["us_comment"] = generate_us_comment(data)
     data["fx_comment"] = generate_fx_comment(data)
