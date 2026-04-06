@@ -10,6 +10,31 @@ headers = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+def get_investing_index(index_id):
+    """
+    Investing.com のインデックスを取得する
+    index_id: TOPIX=166, Mothers=40820
+    """
+    try:
+        url = f"https://api.investing.com/api/financialdata/{index_id}/historical/chart"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json",
+        }
+        res = requests.get(url, headers=headers, timeout=10).json()
+
+        prices = res["data"]["candles"]
+        if len(prices) < 2:
+            return None, None
+
+        last = prices[-1][4]   # 終値
+        prev = prices[-2][4]   # 前日終値
+        change = (last - prev) / prev * 100
+
+        return float(last), float(change)
+
+    except Exception:
+        return None, None
 
 # ============================
 # 汎用：Yahoo Finance 取得
@@ -122,8 +147,13 @@ def get_vix_futures_safe(vix_price, vix_change):
 # ============================
 def get_japan_indices():
     nikkei = get_yf_data("^N225")
-    topix = get_yf_data("^TOPX")      # 取れない場合は (None, None)
-    mothers = get_yf_data("^MOTHERS") # 同上
+
+    # TOPIX（Investing.com）
+    topix = get_investing_index(166)
+
+    # マザーズ（Investing.com）
+    mothers = get_investing_index(40820)
+
     return nikkei, topix, mothers
 
 
