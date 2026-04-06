@@ -69,7 +69,7 @@ def get_price(t):
 def get_fgi():
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-        res = requests.get(url, headers=headers, timeout=10).json()
+        res = requests.get(url, headers=headers, timeout=20).json()
         return int(res["fear_and_greed"]["score"]), int(
             res["fear_and_greed"]["previous_close"]
         )
@@ -89,7 +89,7 @@ def get_vix_futures_yahoo():
     ]
     for url in urls:
         try:
-            j = requests.get(url, timeout=5).json()
+            j = requests.get(url, timeout=10).json()
             meta = j["chart"]["result"][0]["meta"]
             last = meta["regularMarketPrice"]
             prev = meta["chartPreviousClose"]
@@ -102,7 +102,7 @@ def get_vix_futures_yahoo():
 def get_vix_futures_fmp():
     try:
         url = "https://financialmodelingprep.com/api/v3/quote/VX=F?apikey=demo"
-        res = requests.get(url, timeout=5).json()
+        res = requests.get(url, timeout=10).json()
         if not res:
             return None, None
         last = res[0]["price"]
