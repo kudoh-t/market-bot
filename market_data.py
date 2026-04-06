@@ -1,37 +1,3 @@
-def generate_score(data):
-    raw = 0
-
-    # --- 各指標の素点 ---
-    raw += score_fgi(data.get("fgi"))
-    raw += score_vix(data.get("vix"))
-    raw += score_us_equity(data.get("sp500"))
-    raw += score_jp_equity(data.get("nikkei"))
-    raw += score_fx(data.get("usd_jpy"))
-    raw += score_wti(data.get("wti"))
-    raw += score_rate(data.get("us10y"))
-
-    # --- 素点の満点 ---
-    raw_max = 50  # 固定（ロジックに基づく）
-
-    # --- 100点換算 ---
-    if raw_max > 0:
-        score = int((raw / raw_max) * 100)
-    else:
-        score = 0
-
-    # --- 判定 ---
-    if score >= 80:
-        judge = "強気"
-    elif score >= 60:
-        judge = "やや強気"
-    elif score >= 40:
-        judge = "中立"
-    elif score >= 20:
-        judge = "やや弱気"
-    else:
-        judge = "弱気"
-
-    return score, raw, raw_max, judge
 import yfinance as yf
 import requests
 import pandas as pd
@@ -87,7 +53,7 @@ def get_fgi():
 
 
 # ============================
-# VIX先物：Yahoo Finance（query1〜4）
+# VIX先物：Yahoo Finance
 # ============================
 def get_vix_futures_yahoo():
     urls = [
@@ -112,7 +78,7 @@ def get_vix_futures_yahoo():
 
 
 # ============================
-# VIX先物：FMP（無料API）
+# VIX先物：FMP
 # ============================
 def get_vix_futures_fmp():
     try:
@@ -128,7 +94,7 @@ def get_vix_futures_fmp():
 
 
 # ============================
-# VIX先物：推定（最終手段）
+# VIX先物：推定
 # ============================
 def estimate_vix_futures(vix_price, vix_change):
     if vix_price is None or vix_change is None:
@@ -137,7 +103,7 @@ def estimate_vix_futures(vix_price, vix_change):
 
 
 # ============================
-# VIX先物：フェイルオーバー統合
+# VIX先物：フェイルオーバー
 # ============================
 def get_vix_futures_safe(vix_price, vix_change):
     vxf = get_vix_futures_yahoo()
@@ -156,8 +122,8 @@ def get_vix_futures_safe(vix_price, vix_change):
 # ============================
 def get_japan_indices():
     nikkei = get_yf_data("^N225")
-    topix = get_yf_data("^TOPX")
-    mothers = get_yf_data("^MOTHERS")  # 取れない場合は None になる
+    topix = get_yf_data("^TOPX")      # Yahoo 側の仕様変更で取れないことがある
+    mothers = get_yf_data("^MOTHERS") # 同上
     return nikkei, topix, mothers
 
 
@@ -283,6 +249,9 @@ def score_rate(us10y_tuple):
     return 0
 
 
+# ============================
+# 正しい generate_score（統一版）
+# ============================
 def generate_score(data):
     raw = 0
 
@@ -294,8 +263,9 @@ def generate_score(data):
     raw += score_wti(data.get("wti"))
     raw += score_rate(data.get("us10y"))
 
-    # -50〜+50 を 0〜100 にマッピング
-    score = max(0, min(100, int(raw + 50)))
+    raw_max = 50  # 固定
+
+    score = int((raw / raw_max) * 100)
 
     if score >= 80:
         judge = "強気"
@@ -308,7 +278,7 @@ def generate_score(data):
     else:
         judge = "弱気"
 
-    return score, raw, judge
+    return score, raw, raw_max, judge
 
 
 # ============================
@@ -345,6 +315,9 @@ def generate_comment(data):
     return " ".join(parts)
 
 
+# ============================
+# Copilot View
+# ============================
 def generate_copilot_view(data):
     fgi = data.get("fgi")
     vix = get_price(data.get("vix"))
