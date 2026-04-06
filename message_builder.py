@@ -2,7 +2,6 @@
 #  message_builder.py（完全版）
 # ============================
 
-# --- 数値フォーマッタ（有効数字最適化） ---
 def safe_fmt(value):
     if value is None:
         return "N/A"
@@ -17,16 +16,12 @@ def safe_fmt(value):
 def fmt_number(v):
     if v is None:
         return "N/A"
-
     if 50 < v < 200:
         return f"{v:.3f}"
-
     if v > 1000:
         return f"{v:.1f}"
-
     if v < 1000:
         return f"{v:.2f}"
-
     return f"{v:.2f}"
 
 
@@ -38,7 +33,7 @@ def fmt_change(diff):
 
 
 # ============================
-# タイトル生成（戦時/平時/移行期）
+# タイトル生成
 # ============================
 def generate_title(data):
     date = data.get("date", "0000.00.00")
@@ -94,7 +89,7 @@ def build_message(d):
         f" ・NASDAQ: {safe_fmt(d.get('nasdaq'))}\n",
     ]
 
-    # --- 3. VIX ---
+    # --- 3. リスク指標 ---
     section_vix = [
         "▼ 3. リスク指標 (VIX)",
         f" ・VIX現物: {safe_fmt(d.get('vix'))}",
@@ -119,35 +114,42 @@ def build_message(d):
         f" ・天然ガス: {safe_fmt(d.get('natgas'))}\n",
     ]
 
-    # --- 6. 仮想通貨 ---
+    # --- 6. 金利 ---
+    section_rates = [
+        "▼ 6. 金利",
+        f" ・米10年債: {safe_fmt(d.get('us10y'))}",
+        f" ・米2年債: {safe_fmt(d.get('us2y'))}",
+        f" ・イールド差: {fmt_number(d.get('yield_spread'))}\n",
+    ]
+
+    # --- 7. 仮想通貨 ---
     section_crypto = [
-        "▼ 6. 仮想通貨",
+        "▼ 7. 仮想通貨",
         f" ・BTC: {safe_fmt(d.get('btc'))}",
         f" ・ETH: {safe_fmt(d.get('eth'))}\n",
     ]
 
-    # --- 7. コメント ---
+    # --- 8. コメント ---
     section_comment = [
-        "▼ 7. コメント",
+        "▼ 8. コメント",
         d.get("comment", "N/A"),
         "\n",
     ]
 
-    # --- 8. Copilot View ---
+    # --- 9. Copilot View ---
     section_copilot = [
-        "▼ 8. Copilot View",
+        "▼ 9. Copilot View",
         d.get("copilot_view", "N/A"),
         "\n",
     ]
 
-    # --- 9. 総合スコア ---
+    # --- 10. 総合スコア ---
     section_score = [
-    "▼ 9. 総合スコア",
-    f" ・スコア: {d.get('score', 'N/A')} / 100",
-    f" ・素点: {d.get('raw_score', 'N/A')} / {d.get('raw_max', 'N/A')}",
-    f" ・判定: {d.get('judge', 'N/A')}",
+        "▼ 10. 総合スコア",
+        f" ・スコア: {d.get('score', 'N/A')} / 100",
+        f" ・素点: {d.get('raw_score', 'N/A')} / {d.get('raw_max', 'N/A')}",
+        f" ・判定: {d.get('judge', 'N/A')}",
     ]
-
 
     message = "\n".join(
         section_fgi
@@ -156,6 +158,7 @@ def build_message(d):
         + section_vix
         + section_fx
         + section_commodities
+        + section_rates
         + section_crypto
         + section_comment
         + section_copilot
