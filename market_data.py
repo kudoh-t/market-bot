@@ -284,6 +284,37 @@ def generate_score(data):
 # ============================
 # 総合コメント
 # ============================
+def generate_fgi_comment(data):
+    fgi = data.get("fgi")
+    if fgi is None:
+        return "FGIデータが取得できませんでした。"
+
+    if fgi < 20:
+        return "FGIは極端な恐怖水準で、投資家心理はかなり弱気です。"
+    if fgi < 40:
+        return "FGIは恐怖寄りで、慎重な投資姿勢が広がっています。"
+    if fgi <= 60:
+        return "FGIは中立圏で、過度な偏りは見られません。"
+    if fgi <= 80:
+        return "FGIは強欲寄りで、リスク選好が強まっています。"
+    return "FGIは極端な強欲水準で、過熱感が意識されます。"
+
+
+def generate_vix_comment(data):
+    vix = get_price(data.get("vix"))
+    if vix is None:
+        return "VIXデータが取得できませんでした。"
+
+    if vix < 15:
+        return "VIXは低水準で、市場は過度に落ち着いた状態です。"
+    if vix < 20:
+        return "VIXは落ち着いた水準で、リスクは限定的です。"
+    if vix < 25:
+        return "VIXはやや警戒感がある水準です。"
+    if vix < 30:
+        return "VIXは警戒感が高まっており、リスク管理が重要です。"
+    return "VIXは高水準で、リスクオフの動きが強まっています。"
+
 def generate_comment(data):
     vix = get_price(data.get("vix"))
     sp_ch = get_change(data.get("sp500"))
