@@ -95,3 +95,4 @@ def score_news(classified):
     war_score = len(classified["categories"]["geopolitics"])
     peace_score = len(classified["categories"]["monetary"])
     return war_score, peace_score
+#
