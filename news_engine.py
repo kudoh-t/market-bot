@@ -10,7 +10,29 @@ RSS_FEEDS = [
 ]
 
 # ============================================
-# ニュース取得
+# 信頼スコア辞書（フェイクニュース排除）
+# ============================================
+NEWS_SOURCE_SCORE = {
+    "reuters": 95,
+    "marketwatch": 85,
+    "bloomberg": 95,
+    "apnews": 90,
+    "bbc": 90,
+    "cnn": 80,
+    "foxnews": 70,
+    "yahoo": 70,
+    "unknown": 50
+}
+
+def get_source_score(link):
+    link = link.lower()
+    for source, score in NEWS_SOURCE_SCORE.items():
+        if source in link:
+            return score
+    return NEWS_SOURCE_SCORE["unknown"]
+
+# ============================================
+# ニュース取得（信頼フィルタ付き）
 # ============================================
 def fetch_news(max_items=20):
     news = []
@@ -33,7 +55,15 @@ def fetch_news(max_items=20):
             unique_news.append(n)
             seen.add(n["title"])
 
-    return unique_news[:max_items]
+    # 信頼スコアでフィルタ（70点以上のみ採用）
+    filtered = []
+    for n in unique_news:
+        score = get_source_score(n["link"])
+        if score >= 70:
+            filtered.append(n)
+
+    # 件数制限
+    return filtered[:max_items]
 
 # ============================================
 # キーワード辞書（日本語＋英語）
@@ -71,7 +101,7 @@ def classify_news_list(news_list):
     result = {"categories": {"geopolitics": [], "monetary": [], "other": []}}
 
     for n in news_list:
-        title = n["title"].lower()  # 英語判定用に小文字化
+        title = n["title"].lower()
 
         geo_hit = any(k.lower() in title for k in GEOPOLITICS_KEYWORDS)
         mon_hit = any(k.lower() in title for k in MONETARY_KEYWORDS)
@@ -81,7 +111,6 @@ def classify_news_list(news_list):
         elif mon_hit and not geo_hit:
             result["categories"]["monetary"].append(n)
         elif geo_hit and mon_hit:
-            # 両方ヒット → 地政学優先
             result["categories"]["geopolitics"].append(n)
         else:
             result["categories"]["other"].append(n)
@@ -95,4 +124,3 @@ def score_news(classified):
     war_score = len(classified["categories"]["geopolitics"])
     peace_score = len(classified["categories"]["monetary"])
     return war_score, peace_score
-#
