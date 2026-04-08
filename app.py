@@ -4,6 +4,7 @@ import time
 
 from market_data import get_market_data
 from message_builder import build_message
+from analysis import analyze_market   # ★ 追加
 
 # ============================
 # LINE送信
@@ -49,13 +50,25 @@ def send_line(message):
 
 def main():
     # ① 市場データ取得
-    market = get_market_data()
+    data = get_market_data()
 
-    # ② メッセージ生成（ニュース取得・分析は内部で実行）
-    report = build_message(market)
+    # ② ニュース分析（★ 追加）
+    analysis = analyze_market(
+        data,
+        data["classified_news"],
+        data["war_score"],
+        data["peace_score"]
+    )
 
-    # ③ LINE送信
+    # ③ analysis の結果を data に統合（★ 追加）
+    data.update(analysis)
+
+    # ④ メッセージ生成
+    report = build_message(data)
+
+    # ⑤ LINE送信
     send_line(report)
+
 
 if __name__ == "__main__":
     main()

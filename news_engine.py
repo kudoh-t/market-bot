@@ -1,3 +1,34 @@
+import feedparser
+
+RSS_FEEDS = [
+    "https://feeds.reuters.com/reuters/topNews",
+    "https://feeds.reuters.com/Reuters/worldNews",
+    "https://feeds.marketwatch.com/marketwatch/topstories/"
+]
+
+def fetch_news(max_items=20):
+    news = []
+
+    for url in RSS_FEEDS:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                title = entry.title
+                link = entry.link
+                news.append({"title": title, "link": link})
+        except Exception:
+            continue
+
+    # 重複削除
+    seen = set()
+    unique_news = []
+    for n in news:
+        if n["title"] not in seen:
+            unique_news.append(n)
+            seen.add(n["title"])
+
+    return unique_news[:max_items]
+
 GEOPOLITICS_KEYWORDS = [
     "戦闘","攻撃","停戦","軍事","ミサイル","侵攻","紛争",
     "中東","ガザ","イスラエル","イラン","ロシア","ウクライナ",
@@ -30,3 +61,7 @@ def classify_news_list(news_list):
             result["categories"]["other"].append(n)
 
     return result
+def score_news(classified):
+    war_score = len(classified["categories"]["geopolitics"])
+    peace_score = len(classified["categories"]["monetary"])
+    return war_score, peace_score

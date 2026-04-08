@@ -1,6 +1,7 @@
 import yfinance as yf
 import requests
 from datetime import datetime
+from news_engine import fetch_news, classify_news_list, score_news
 
 # ============================================
 # 共通ヘッダー
@@ -434,5 +435,15 @@ def get_market_data():
     data["rates_comment"] = generate_rates_comment(data)
     data["crypto_comment"] = generate_crypto_comment(data)
     data["copilot_view"] = generate_copilot_view(data)
+    # ============================
+    # ★ ニュース処理（追加）
+    # ============================
+    news_list = fetch_news()
+    classified = classify_news_list(news_list)
+    war_score, peace_score = score_news(classified)
+
+    data["classified_news"] = classified
+    data["war_score"] = war_score
+    data["peace_score"] = peace_score
 
     return data

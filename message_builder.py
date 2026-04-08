@@ -48,6 +48,38 @@ def generate_title(data):
         icon = "⚠️"
 
     return f"【{date} {icon}{mode}：総合反転スコア】"
+def build_news_section(data):
+    classified = data.get("classified_news", {})
+    categories = classified.get("categories", {})
+
+    geopolitics = categories.get("geopolitics", [])
+    monetary = categories.get("monetary", [])
+    other = categories.get("other", [])
+
+    lines = []
+
+    # 地政学ニュース
+    if geopolitics:
+        lines.append("【地政学ニュース】")
+        for n in geopolitics[:3]:
+            lines.append(f"・{n['title']}")
+        lines.append("")  # 空行
+
+    # 金融政策ニュース
+    if monetary:
+        lines.append("【金融政策ニュース】")
+        for n in monetary[:3]:
+            lines.append(f"・{n['title']}")
+        lines.append("")
+
+    # その他ニュース
+    if other:
+        lines.append("【その他ニュース】")
+        for n in other[:3]:
+            lines.append(f"・{n['title']}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
 
 
 def build_message(d):
@@ -123,14 +155,21 @@ def build_message(d):
         "\n",
     ]
 
+    # ★ ニュースセクション追加
+    section_news = [
+        "▼ 9. ニュース",
+        build_news_section(d),
+        "\n",
+    ]
+
     section_copilot = [
-        "▼ 9. Copilot View",
+        "▼ 10. Copilot View",
         d.get("copilot_view", "N/A"),
         "\n",
     ]
 
     section_score = [
-        "▼ 10. 総合スコア",
+        "▼ 11. 総合スコア",
         f" ・スコア: {d.get('score', 'N/A')} / 100",
         f" ・素点: {d.get('raw_score', 'N/A')} / {d.get('raw_max', 'N/A')}",
         f" ・判定: {d.get('judge', 'N/A')}",
@@ -146,8 +185,10 @@ def build_message(d):
         + section_rates
         + section_crypto
         + section_comment
+        + section_news      # ★ 追加
         + section_copilot
         + section_score
     )
 
     return message
+
