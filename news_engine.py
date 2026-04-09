@@ -23,6 +23,12 @@ NEWS_SOURCE_SCORE = {
     "yahoo": 70,
     "unknown": 50
 }
+def get_source_name(link):
+    link = link.lower()
+    for source in NEWS_SOURCE_SCORE.keys():
+        if source in link:
+            return source
+    return "unknown"
 
 def get_source_score(link):
     link = link.lower()
@@ -43,6 +49,7 @@ def fetch_news(max_items=20):
             for entry in feed.entries:
                 title = entry.title
                 link = entry.link
+                source: str = get_source_name(link)  # ← ここを追加
                 news.append({"title": title, "link": link})
         except Exception:
             continue
