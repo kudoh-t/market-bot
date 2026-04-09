@@ -50,7 +50,7 @@ def fetch_news(max_items=20):
                 title = entry.title
                 link = entry.link
                 source: str = get_source_name(link)  # ← ここを追加
-                news.append({"title": title, "link": link})
+                news.append({"title": title, "link": link, "source": source})
         except Exception:
             continue
 
