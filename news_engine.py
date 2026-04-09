@@ -4,10 +4,23 @@ import feedparser
 # RSS FEEDS
 # ============================================
 RSS_FEEDS = [
+    # Reuters（最重要）
     "https://feeds.reuters.com/reuters/topNews",
     "https://feeds.reuters.com/Reuters/worldNews",
-    "https://feeds.marketwatch.com/marketwatch/topstories/"
+
+    # MarketWatch（マーケット速報）
+    "https://feeds.marketwatch.com/marketwatch/marketpulse/",
+
+    # BBC（世界ニュース）
+    "http://feeds.bbci.co.uk/news/world/rss.xml",
+
+    # CNN（国際ニュース）
+    "http://rss.cnn.com/rss/edition.rss",
+
+    # AP News（速報性が高い）
+    "https://apnews.com/rss"
 ]
+
 
 # ============================================
 # 信頼スコア辞書（フェイクニュース排除）
@@ -49,28 +62,39 @@ def fetch_news(max_items=20):
             for entry in feed.entries:
                 title = entry.title
                 link = entry.link
-                source: str = get_source_name(link)  # ← ここを追加
+                source = get_source_name(link)
                 news.append({"title": title, "link": link, "source": source})
         except Exception:
             continue
 
-    # 重複削除
+    # ▼ 重複削除 + ? を含む変なニュース除外
     seen = set()
     unique_news = []
     for n in news:
-        if n["title"] not in seen:
-            unique_news.append(n)
-            seen.add(n["title"])
+        title = n["title"]
 
-    # 信頼スコアでフィルタ（70点以上のみ採用）
+        if title in seen:
+            continue
+
+        if "?" in title:
+            continue
+
+        unique_news.append(n)
+        seen.add(title)
+
+    # ▼ ★ スコア順に並べる（高い順）
+    unique_news.sort(key=lambda x: get_source_score(x["link"]), reverse=True)
+
+    # ▼ 信頼スコアでフィルタ（70点以上のみ）
     filtered = []
     for n in unique_news:
         score = get_source_score(n["link"])
         if score >= 70:
             filtered.append(n)
 
-    # 件数制限
+    # ▼ 件数制限
     return filtered[:max_items]
+
 
 # ============================================
 # キーワード辞書（日本語＋英語）
