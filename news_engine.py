@@ -1,4 +1,5 @@
 import feedparser
+MAX_TOTAL_SCORE = 125
 
 # ============================================
 # RSS FEEDS
@@ -36,6 +37,21 @@ NEWS_SOURCE_SCORE = {
     "yahoo": 70,
     "unknown": 50
 }
+def get_news_importance(title):
+    title_lower = title.lower()
+
+    geo_hit = any(k.lower() in title_lower for k in GEOPOLITICS_KEYWORDS)
+    mon_hit = any(k.lower() in title_lower for k in MONETARY_KEYWORDS)
+
+    if geo_hit and mon_hit:
+        return 30  # 両方ヒットは最重要
+    elif geo_hit:
+        return 20  # 地政学
+    elif mon_hit:
+        return 20  # 金融政策
+    else:
+        return 0   # その他
+
 def get_source_name(link):
     link = link.lower()
     for source in NEWS_SOURCE_SCORE.keys():
@@ -64,7 +80,16 @@ def fetch_news(max_items=20):
                 link = entry.link
                 source = get_source_name(link)
                 score = get_source_score(link)   # ★ 追加
-                news.append({"title": title, "link": link, "source": source, "score": score})  # ★ 修正
+                importance = get_news_importance(title)  # ★追加
+                news.append({
+                    "title": title,
+                    "link": link,
+                    "source": source,
+                    "score": score,
+                    "importance": importance,            # ★追加
+                    "total_score": score + importance    # ★追加
+                    "normalized_score": normalized
+            })
         except Exception:
             continue
 
@@ -84,7 +109,9 @@ def fetch_news(max_items=20):
         seen.add(title)
 
     # ▼ ★ スコア順に並べる（高い順）
-    unique_news.sort(key=lambda x: get_source_score(x["link"]), reverse=True)
+    #unique_news.sort(key=lambda x: get_source_score(x["link"]), reverse=True)
+    #unique_news.sort(key=lambda x: x["total_score"], reverse=True)
+    unique_news.sort(key=lambda x: x["normalized_score"], reverse=True)
 
     # ▼ 信頼スコアでフィルタ（70点以上のみ）
     filtered = []
