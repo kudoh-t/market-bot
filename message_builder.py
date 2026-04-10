@@ -50,6 +50,7 @@ def generate_title(data):
     return f"【{date} {icon}{mode}：総合反転スコア】"
 def build_news_section(data):
     classified = data.get("classified_news", {})
+    classified = sort_news_by_category(classified)   # ★ 追加
     categories = classified.get("categories", {})
 
     geopolitics = categories.get("geopolitics", [])
@@ -81,6 +82,13 @@ def build_news_section(data):
 
     return "\n".join(lines).strip()
 
+def sort_news_by_category(classified):
+    for cat in ["geopolitics", "monetary", "other"]:
+        classified["categories"][cat].sort(
+            key=lambda x: x["normalized_score"],
+            reverse=True
+        )
+    return classified
 
 
 def build_message(d):

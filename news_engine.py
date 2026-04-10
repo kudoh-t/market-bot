@@ -175,6 +175,13 @@ def classify_news_list(news_list):
             result["categories"]["other"].append(n)
 
     return result
+def sort_news_by_category(classified):
+    for cat in ["geopolitics", "monetary", "other"]:
+        classified["categories"][cat].sort(
+            key=lambda x: x["normalized_score"],
+            reverse=True
+        )
+    return classified
 
 # ============================================
 # ニューススコア
