@@ -89,7 +89,7 @@ def fetch_news(max_items=20):
                     "importance": importance,            # ★追加
                     "total_score": score + importance,    # ★追加
                     "normalized_score": int(((score + importance) / MAX_TOTAL_SCORE) * 100)
-            })
+                })
         except Exception:
             continue
 
