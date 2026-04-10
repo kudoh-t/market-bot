@@ -63,21 +63,21 @@ def build_news_section(data):
     if geopolitics:
         lines.append("【地政学ニュース】")
         for n in geopolitics[:3]:
-            lines.append(f"- {n['title']} ({n['source']} {n['score']}点)")
+            lines.append(f"- {n['title']} ({n['source']} 総合{n['normalized_score']}点 / 信頼{n['score']}点)")
         lines.append("")
 
     # 金融政策ニュース
     if monetary:
         lines.append("【金融政策ニュース】")
         for n in monetary[:3]:
-            lines.append(f"- {n['title']} ({n['source']} {n['score']}点)")
+            lines.append(f"- {n['title']} ({n['source']} 総合{n['normalized_score']}点 / 信頼{n['score']}点)")
         lines.append("")
 
     # その他ニュース
     if other:
         lines.append("【その他ニュース】")
         for n in other[:3]:
-            lines.append(f"- {n['title']} ({n['source']} {n['score']}点)")
+            lines.append(f"- {n['title']} ({n['source']} 総合{n['normalized_score']}点 / 信頼{n['score']}点)")
         lines.append("")
 
     return "\n".join(lines).strip()
