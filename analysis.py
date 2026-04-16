@@ -127,38 +127,51 @@ def get_btc_comment(btc_c):
 # ============================
 
 def calc_reversal_score(market, war_score, peace_score):
+    """
+    market: 市場データ辞書
+    war_score: news_engine.score_news から返される弱気スコア
+    peace_score: news_engine.score_news から返される強気スコア(Monetary + Industry)
+    """
     score = 0
 
-    # FGI
+    # --- 既存の市場データ評価（FGI, VIX, 指数, スプレッド等） ---
+    # FGI (逆張り指標)
     fgi = market.get("fgi")
     if fgi is not None:
         score += max(0, 30 - fgi) * 0.8
 
-    # 株価指数
-    for key in ["nasdaq_change", "sp500_change", "nikkei_change"]:
-        c = market.get(key)
-        if c is not None and c < 0:
-            score += min(10, abs(c)) * 0.8
-
-    # VIX
+    # VIX (警戒感)
     vix_c = market.get("vix_change")
     if vix_c is not None:
         score += min(20, vix_c)
 
-    # スプレッド
+    # 逆イールド
     spread = market.get("yield_spread")
     if spread is not None and spread < 0:
         score += min(20, abs(spread) * 10)
 
-    # 原油急騰はマイナス
+    # --- ニュースによる調整（ここを修正） ---
+    # news_engine.py 側で既に war_score(抑制済み) と peace_score(ブースト済み) 
+    # が計算されているため、ここではシンプルに合算します。
+    
+    # 地政学の悪材料を、金融政策や産業の好材料がどれだけカバーしているか
+    news_impact = peace_score - war_score
+    
+    # ニュースインパクトの反映（最大 ±25点 程度の範囲に収まるよう調整）
+    score += max(-25, min(25, news_impact / 10)) 
+
+    # 原油急騰は別途ペナルティ（インフレ・地政学懸念の裏付け）
     wti_c = market.get("wti_change")
     if wti_c is not None and wti_c > 2:
         score -= min(10, wti_c)
-
-    # ニュース
-    score -= war_score * 2
-    score += peace_score * 1
-
+# --- 需給・温度感の追加（追記イメージ） ---
+    copper = market.get("copper_change")
+    gold = market.get("gold_change")
+    
+    # 銅(景気)が金(不安)をアウトパフォームしていれば、実体経済は強いと判断
+    if copper is not None and gold is not None:
+        if (copper - gold) > 0.5:
+            score += 10  # リスクオン加点
     return max(0, min(100, int(score)))
 
 

@@ -50,34 +50,37 @@ def generate_title(data):
     return f"【{date} {icon}{mode}：総合反転スコア】"
 def build_news_section(data):
     classified = data.get("classified_news", {})
-    classified = sort_news_by_category(classified)   # ★ 追加
+    # 前回の修正で追加した sort_news_by_category を適用
+    classified = sort_news_by_category(classified)
     categories = classified.get("categories", {})
 
+    # カテゴリの取得（新設の industry を追加）
     geopolitics = categories.get("geopolitics", [])
     monetary = categories.get("monetary", [])
+    industry = categories.get("industry", []) # ★ 追加
     other = categories.get("other", [])
 
     lines = []
 
-    # 地政学ニュース
-    if geopolitics:
-        lines.append("【地政学ニュース】")
-        for n in geopolitics[:3]:
-            lines.append(f"- {n['title']} ({n['source']} 総合{n['normalized_score']}点 / 信頼{n['score']}点)")
+    # 1. 産業・テックニュース（実体経済のポジティブ要因を優先表示）
+    if industry:
+        lines.append("【産業・テック】")
+        for n in industry[:3]:
+            lines.append(f"・{n['title']} ({n['source']} {n['normalized_score']}点)")
         lines.append("")
 
-    # 金融政策ニュース
+    # 2. 金融政策ニュース
     if monetary:
-        lines.append("【金融政策ニュース】")
+        lines.append("【金融政策】")
         for n in monetary[:3]:
-            lines.append(f"- {n['title']} ({n['source']} 総合{n['normalized_score']}点 / 信頼{n['score']}点)")
+            lines.append(f"・{n['title']} ({n['source']} {n['normalized_score']}点)")
         lines.append("")
 
-    # その他ニュース
-    if other:
-        lines.append("【その他ニュース】")
-        for n in other[:3]:
-            lines.append(f"- {n['title']} ({n['source']} 総合{n['normalized_score']}点 / 信頼{n['score']}点)")
+    # 3. 地政学ニュース
+    if geopolitics:
+        lines.append("【地政学リスク】")
+        for n in geopolitics[:3]:
+            lines.append(f"・{n['title']} ({n['source']} {n['normalized_score']}点)")
         lines.append("")
 
     return "\n".join(lines).strip()
