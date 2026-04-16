@@ -1,5 +1,5 @@
 import os
-from prompt_toolkit import prompt
+#from prompt_toolkit import prompt
 import requests
 import time
 import google.generativeai as genai  # ★ 追加
