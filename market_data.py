@@ -360,24 +360,44 @@ def generate_crypto_comment(data):
     return "仮想通貨市場は落ち着いた動きです。"
 
 def generate_copilot_view(data):
-    fgi = data.get("fgi")
-    vix = get_price(data.get("vix"))
-    sp_ch = get_change(data.get("sp500"))
-    nikkei_ch = get_change(data.get("nikkei"))
-    usd_ch = get_change(data.get("usd_jpy"))
-    wti_ch = get_change(data.get("wti"))
-    score = data.get("score")
-    judge = data.get("judge")
-    lines = []
-    if fgi is not None: lines.append(f"FGIは {fgi} で、投資家心理はこの水準です。")
-    if vix is not None: lines.append(f"VIXは {vix:.2f} で、リスク許容度の目安となります。")
-    if sp_ch is not None: lines.append(f"S&P500は前日比で {sp_ch:.2f}% の動きでした。")
-    if nikkei_ch is not None: lines.append(f"日経平均は前日比 {nikkei_ch:.2f}% の推移です。")
-    if usd_ch is not None: lines.append(f"ドル円は前日比 {usd_ch:.2f}% の変動となっています。")
-    if wti_ch is not None: lines.append(f"原油は前日比 {wti_ch:.2f}% の動きで、インフレ要因として注目されます。")
-    if score is not None and judge is not None: lines.append(f"総合スコアは {score} 点で、判定は「{judge}」です。")
-    return "\n".join(lines) if lines else "現在の市場環境を総合的に評価するには、もう少しデータが必要です。"
+    # 1. データの整理（AIが分析しやすいように抽出）
+    fgi = data.get("fgi", "N/A")
+    # VIXなどのリスト形式データから現在の値を取得
+    vix = data.get("vix")[0] if isinstance(data.get("vix"), list) else "N/A"
+    us10y = data.get("us10y")[0] if isinstance(data.get("us10y"), list) else "N/A"
+    
+    # 変化率（%）の取得
+    nk_ch = data.get("nikkei_change", 0)
+    sp_ch = data.get("sp500_change", 0)
+    wti_ch = data.get("wti_change", 0)
+    
+    # 判定スコア
+    score = data.get("score", "N/A")
+    judge = data.get("judge", "N/A")
 
+    # 2. AIへの「依頼書（プロンプト）」を構築
+    # ※ この文字列を main.py の Gemini が受け取って考えます
+    prompt = f"""
+【軍師への分析依頼】
+あなたは冷徹かつ鋭い視点を持つ投資ストラテジストです。
+以下の市場データから、数値の単なる読み上げ（オウム返し）を厳禁し、相場の「歪み」や「深層リスク」をあぶり出してください。
+
+■市場データ
+・投資家心理(FGI): {fgi}
+・恐怖指数(VIX): {vix}
+・米10年債利回り: {us10y}%
+・日経平均騰落: {nk_ch:+.2f}%
+・S&P500騰落: {sp_ch:+.2f}%
+・原油(WTI)騰落: {wti_ch:+.2f}%
+・システム総合判定: {score}点（{judge}）
+
+■回答ルール
+1. 【今日の核心】として、今最も注目すべき矛盾や変化を一行で断定せよ。
+2. 地政学リスクが「価格に織り込み済み（ノイズ）」か「実害レベル」か、原油とVIXの動きから判断せよ。
+3. 最後に、個人投資家が今日絶対に避けるべき行動を一つ助言せよ。
+150文字程度で、プロらしい硬派な口調で頼む。
+"""
+    return prompt
 
 # ============================================
 # メイン：市場データ取得

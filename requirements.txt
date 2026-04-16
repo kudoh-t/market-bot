@@ -3,4 +3,4 @@ beautifulsoup4
 yfinance
 gunicorn
 feedparser
-# add feedparse
+google-generativeai
