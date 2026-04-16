@@ -18,33 +18,28 @@ def get_gemini_insight(prompt):
         return "（警告：GEMINI_API_KEY 未設定）"
 
     try:
+        # APIキーを設定
         genai.configure(api_key=api_key)
         
-        # 対策1: より汎用的な 'gemini-1.5-flash' を使用
-        # もしこれでもダメなら 'gemini-1.5-pro' もしくは 'gemini-pro' に書き換えてみてください
-# モデル名を 001 や 002 などのバージョン付きにするか、シンプルな名称に変更
-        #model = genai.GenerativeModel("models/gemini-1.5-flash")
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(  prompt)
+        # モデル一覧を一度取得して、最初に見つかった利用可能なモデルを自動選択する
+        # (これで名前の不一致を物理的に回避します)
+        available_models = [m.name for m in genai.list_models() 
+                           if 'generateContent' in m.supported_generation_methods]
         
-        # 対策2: 安全なテキスト取得
-        if response and response.text:
-            return response.text.strip()
-        else:
-            return "（AIからの回答が空でした。ブロックされた可能性があります。）"
+        # 'gemini-1.5-flash' か 'gemini-pro' を優先的に探し、なければリストの先頭を使う
+        target_model = "models/gemini-1.5-flash"
+        if target_model not in available_models:
+            target_model = "models/gemini-pro"
+        if target_model not in available_models:
+            target_model = available_models[0]
+
+        model = genai.GenerativeModel(target_model)
+        response = model.generate_content(prompt)
+        
+        return response.text.strip()
 
     except Exception as e:
-        # 【重要】エラーの内容をそのままLINEに飛ばして原因を特定する
-        error_msg = str(e)
-        print(f"AI分析エラー: {error_msg}")
-        
-        if "API_KEY_INVALID" in error_msg:
-            return "（エラー：APIキーが無効です。コピーミスがないか確認してください。）"
-        elif "model not found" in error_msg.lower():
-            return "（エラー：指定したモデル名が見つかりません。gemini-proを試してください。）"
-        else:
-            return f"（AI分析エラー詳細: {error_msg[:100]}）" # エラーの冒頭100文字を表示
-
+        return f"AI分析エラー詳細: {str(e)}"
 # ============================
 # LINE送信
 # ============================
