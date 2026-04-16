@@ -1,4 +1,5 @@
 import os
+from prompt_toolkit import prompt
 import requests
 import time
 import google.generativeai as genai  # ★ 追加
@@ -21,9 +22,10 @@ def get_gemini_insight(prompt):
         
         # 対策1: より汎用的な 'gemini-1.5-flash' を使用
         # もしこれでもダメなら 'gemini-1.5-pro' もしくは 'gemini-pro' に書き換えてみてください
-        model = genai.GenerativeModel("gemini-1.5-flash")
+# モデル名を 001 や 002 などのバージョン付きにするか、シンプルな名称に変更
+        model = genai.GenerativeModel("models/gemini-1.5-flash")
         
-        response = model.generate_content(prompt)
+        response = model.generate_content(  prompt)
         
         # 対策2: 安全なテキスト取得
         if response and response.text:
