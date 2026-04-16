@@ -12,27 +12,36 @@ from analysis import analyze_market
 # ============================
 
 def get_gemini_insight(prompt):
-    """
-    Gemini API を呼び出して、市場データの深層分析を取得する
-    """
-    # 環境変数からAPIキーを取得（事前に設定が必要）
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        return "（警告：GEMINI_API_KEY 未設定のため、AI分析をスキップします。数値を直接読み取ってください。）"
+        return "（警告：GEMINI_API_KEY 未設定）"
 
     try:
-        # Geminiの設定
         genai.configure(api_key=api_key)
-        # 2026年時点での最新モデル（gemini-1.5-flash または pro）を指定
+        
+        # 対策1: より汎用的な 'gemini-1.5-flash' を使用
+        # もしこれでもダメなら 'gemini-1.5-pro' もしくは 'gemini-pro' に書き換えてみてください
         model = genai.GenerativeModel("gemini-1.5-flash")
         
-        # 分析実行
         response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        print(f"AI分析エラー: {e}")
-        return "（AI分析中にエラーが発生しました。データの整合性を直接確認してください。）"
+        
+        # 対策2: 安全なテキスト取得
+        if response and response.text:
+            return response.text.strip()
+        else:
+            return "（AIからの回答が空でした。ブロックされた可能性があります。）"
 
+    except Exception as e:
+        # 【重要】エラーの内容をそのままLINEに飛ばして原因を特定する
+        error_msg = str(e)
+        print(f"AI分析エラー: {error_msg}")
+        
+        if "API_KEY_INVALID" in error_msg:
+            return "（エラー：APIキーが無効です。コピーミスがないか確認してください。）"
+        elif "model not found" in error_msg.lower():
+            return "（エラー：指定したモデル名が見つかりません。gemini-proを試してください。）"
+        else:
+            return f"（AI分析エラー詳細: {error_msg[:100]}）" # エラーの冒頭100文字を表示
 
 # ============================
 # LINE送信
