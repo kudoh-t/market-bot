@@ -180,6 +180,38 @@ def get_vix_futures_safe(vix_price, vix_change):
 
     return estimate_vix_futures(vix_price, vix_change), True
 
+def get_vix_futures_super_safe(vix_price, vix_change):
+    """
+    VIX先物 → VIX3M → VIX1M → VVIX → 既存多重化 の順で取得
+    """
+
+    # ① VIX先物（VX=F）
+    vxf = get_vix_futures_yahoo()
+    if vxf[0] is not None:
+        return vxf, "VIX先物(VX=F)"
+
+    # ② VIX 3M
+    v3m = get_price_smart("^VIX3M", tv_symbol="TVC:VIX3M")
+    if v3m[0] is not None:
+        return v3m, "VIX3M"
+
+    # ③ VIX 1M
+    v1m = get_price_smart("^VIX1M", tv_symbol="TVC:VIX1M")
+    if v1m[0] is not None:
+        return v1m, "VIX1M"
+
+    # ④ VVIX
+    vvix = get_price_smart("^VVIX", tv_symbol="TVC:VVIX")
+    if vvix[0] is not None:
+        return vvix, "VVIX"
+
+    # ⑤ 最後に既存の多重化
+    vxf2, est = get_vix_futures_safe(vix_price, vix_change)
+    if vxf2[0] is not None:
+        return vxf2, "推定値" if est else "既存多重化"
+
+    return (None, None), "取得失敗"
+
 
 # ============================================
 # 各セクション取得（Smart関数に統一）
@@ -385,6 +417,7 @@ def generate_copilot_view(data):
 ■市場データ
 ・投資家心理(FGI): {fgi}
 ・恐怖指数(VIX): {vix}
+・VIX先物の使用指標: {data.get("vix_f_source", "N/A")}
 ・米10年債利回り: {us10y}%
 ・日経平均騰落: {nk_ch:+.2f}%
 ・S&P500騰落: {sp_ch:+.2f}%
@@ -420,9 +453,10 @@ def get_market_data():
     vix_price = data["vix"][0] if data["vix"] else None
     vix_change = data["vix"][1] if data["vix"] else None
 
-    # VIX先物
-    data["vix_f"], data["vix_f_est"] = get_vix_futures_safe(vix_price, vix_change)
+    # VIX先物（スーパー多重フェイルオーバー）
+    data["vix_f"], data["vix_f_source"] = get_vix_futures_super_safe(vix_price, vix_change)
     data["vix_comment"] = generate_vix_comment(data)
+
 
     # 金利
     data["us10y"] = get_price_smart("^TNX", tv_symbol="TVC:US10Y")

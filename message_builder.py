@@ -122,11 +122,14 @@ def build_message(d):
     ]
 
     section_vix = [
-        "▼ 3. リスク指標 (VIX)",
-        f" ・VIX現物: {safe_fmt(d.get('vix'))}",
-        f" ・VIX先物{'※推定値' if d.get('vix_f_est') else ''}: {safe_fmt(d.get('vix_f'))}\n",
-        f" ・コメント: {d.get('vix_comment')}\n",
+    "▼ 3. リスク指標 (VIX)",
+    f" ・VIX現物: {safe_fmt(d.get('vix'))}",
+    f" ・VIX先物: {safe_fmt(d.get('vix_f'))}",
+    f"    ┗ 使用指標: {d.get('vix_f_source', 'N/A')}\n",
+    f" ・コメント: {d.get('vix_comment')}\n",
     ]
+
+
 
     section_fx = [
         "▼ 4. 為替",
