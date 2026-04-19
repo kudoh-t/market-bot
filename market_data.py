@@ -219,7 +219,12 @@ def get_vix_futures_super_safe(vix_price, vix_change):
 def get_japan_indices():
     # 確実にYahooからも取れるよう get_price_smart に統一
     nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
-    topix = get_price_smart("^TPX", tv_symbol="TVC:TOPX")
+    topix = get_price_smart(
+    "^TPX",
+    tv_symbol="TVC:TOPX",
+    investing_url="https://www.investing.com/indices/topix"
+    )
+
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
     return nikkei, topix, mothers
 
