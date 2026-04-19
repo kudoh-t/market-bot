@@ -216,17 +216,28 @@ def get_vix_futures_super_safe(vix_price, vix_change):
 # ============================================
 # 各セクション取得（Smart関数に統一）
 # ============================================
+def get_topix_tv():
+    return get_from_tradingview_symbol("TVC:TOPX")
+
 def get_japan_indices():
-    # 確実にYahooからも取れるよう get_price_smart に統一
     nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
+
+    # TOPIX：Yahoo → TradingView → Investing → TradingView(tvcdn)
     topix = get_price_smart(
-    "^TPX",
-    tv_symbol="TVC:TOPX",
-    investing_url="https://www.investing.com/indices/topix"
+        "^TPX",
+        tv_symbol="TVC:TOPX",
+        investing_url="https://www.investing.com/indices/topix"
     )
+    topix_source = "Yahoo/TradingView/Investing"
+
+    if topix[0] is None:
+        topix = get_topix_tv()  # ← 最後の砦（tvcdn）
+        topix_source = "tvcdn"
 
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
-    return nikkei, topix, mothers
+    return nikkei, (topix[0], topix[1], topix_source), mothers
+
+
 
 
 def get_us_indices():
@@ -448,7 +459,12 @@ def get_market_data():
     data["fgi_comment"] = generate_fgi_comment(data)
 
     # 日本市場
-    data["nikkei"], data["topix"], data["mothers"] = get_japan_indices()
+    nikkei, topix_tuple, mothers = get_japan_indices()
+    data["nikkei"] = nikkei
+    data["topix"] = (topix_tuple[0], topix_tuple[1])
+    data["topix_source"] = topix_tuple[2]
+    data["mothers"] = mothers
+
 
     # 米国市場
     data["dow"], data["sp500"], data["nasdaq"] = get_us_indices()

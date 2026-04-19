@@ -107,11 +107,13 @@ def build_message(d):
     ]
 
     section_japan = [
-        "▼ 1. 日本市場",
-        f" ・日経平均: {safe_fmt(d.get('nikkei'))}",
-        f" ・TOPIX: {safe_fmt(d.get('topix'))}",
-        f" ・マザーズ: {safe_fmt(d.get('mothers'))}\n",
+    "▼ 1. 日本市場",
+    f" ・日経平均: {safe_fmt(d.get('nikkei'))}",
+    f" ・TOPIX: {safe_fmt(d.get('topix'))}",
+    f"    ┗ 使用指標: {d.get('topix_source', 'N/A')}",
+    f" ・マザーズ: {safe_fmt(d.get('mothers'))}",
     ]
+
 
     section_us = [
         "▼ 2. 米国市場",
