@@ -47,6 +47,36 @@ def jq_get_token(mail, password):
         print("JQ token exception:", e)
         return None
 
+def jq_get_topix_daily(token):
+    if not token:
+        print("JQ ERROR: token が None のため daily API を呼びません")
+        return None, None, "J-Quants"
+
+    url = "https://api.jpx-jquants.com/v1/indexes/daily?index=1300"
+    h = {"Authorization": f"Bearer {token}"}
+
+    print("=== J-Quants Daily Request ===")
+    print("Token:", token)
+
+    try:
+        res = requests.get(url, headers=h).json()
+        print("JQ daily response:", res)
+
+        rows = res.get("indexes", [])
+        if len(rows) < 2:
+            print("JQ ERROR: indexes が2行未満")
+            return None, None, "J-Quants"
+
+        last = float(rows[-1]["close"])
+        prev = float(rows[-2]["close"])
+        change = (last - prev) / prev * 100
+
+        return last, change, "J-Quants"
+
+    except Exception as e:
+        print("JQ daily exception:", e)
+        return None, None, "J-Quants"
+
 
 # ============================================
 # 汎用ユーティリティ
