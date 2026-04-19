@@ -14,17 +14,21 @@ headers = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
-# J-Quantsトークンの取得
+
+# ============================================
+# J-Quants
+# ============================================
 def jq_get_token(mail, password):
     url = "https://api.jpx-jquants.com/v1/token/auth_user"
     payload = {"mailaddress": mail, "password": password}
     res = requests.post(url, json=payload).json()
     return res["token"]
-# J QuantsでTOPIXの日次データを取得
+
+
 def jq_get_topix_daily(token):
     url = "https://api.jpx-jquants.com/v1/indexes/daily?index=1300"
-    headers = {"Authorization": f"Bearer {token}"}
-    res = requests.get(url, headers=headers).json()
+    h = {"Authorization": f"Bearer {token}"}
+    res = requests.get(url, headers=h).json()
 
     rows = res.get("indexes", [])
     if len(rows) < 2:
@@ -45,7 +49,6 @@ def get_change(t):
 
 def get_price(t):
     return None if not t or t[0] is None else t[0]
-
 
 # ============================================
 # TradingView（tvcdn）取得（サブ・バックアップ）
@@ -70,7 +73,6 @@ def _tv_history(symbol, resolution="1D", count=2):
 def get_from_tradingview_symbol(symbol):
     return _tv_history(symbol)
 
-
 # ============================================
 # Yahoo Finance 汎用取得（メイン）
 # ============================================
@@ -80,18 +82,16 @@ def get_yf_data(ticker):
     """
     try:
         t = yf.Ticker(ticker)
-        # 取得失敗を防ぐため 5日分取得して最新の2日分を比較
         df = t.history(period="5d", interval="1d")
         if df.empty or len(df) < 2:
             return None, None
-        
+
         last = float(df["Close"].iloc[-1])
         prev = float(df["Close"].iloc[-2])
         change = ((last - prev) / prev) * 100
         return last, change
     except Exception:
         return None, None
-
 
 # ============================================
 # Investing.com（バックアップ）
@@ -109,7 +109,6 @@ def get_from_investing(url):
         return last, change
     except Exception:
         return None, None
-
 
 # ============================================
 # 多重化ラッパー：Yahoo(メイン) → TradingView → Investing
@@ -136,10 +135,8 @@ def get_price_smart(ticker, tv_symbol=None, investing_url=None):
         if inv is not None and inv[0] is not None:
             return inv
 
-    # ★ 全部失敗したら None 扱いにする（これが最重要）
+    # 全部失敗
     return (None, None)
-
-
 
 # ============================================
 # FGI
@@ -153,7 +150,6 @@ def get_fgi():
         )
     except Exception:
         return None, None
-
 
 # ============================================
 # VIX先物
@@ -205,11 +201,11 @@ def get_vix_futures_safe(vix_price, vix_change):
 
     return estimate_vix_futures(vix_price, vix_change), True
 
+
 def get_vix_futures_super_safe(vix_price, vix_change):
     """
     VIX先物 → VIX3M → VIX1M → VVIX → 既存多重化 の順で取得
     """
-
     # ① VIX先物（VX=F）
     vxf = get_vix_futures_yahoo()
     if vxf[0] is not None:
@@ -237,12 +233,13 @@ def get_vix_futures_super_safe(vix_price, vix_change):
 
     return (None, None), "取得失敗"
 
-
 # ============================================
-# 各セクション取得（Smart関数に統一）
+# 各セクション取得
 # ============================================
 def get_topix_tv():
     return get_from_tradingview_symbol("TVC:TOPX")
+
+
 def get_topix_tv_multi():
     symbols = [
         "TVC:TOPX",
@@ -255,10 +252,16 @@ def get_topix_tv_multi():
 
     for sym in symbols:
         data = get_from_tradingview_symbol(sym)
-        if data[0] is not None:
-            return data[0], data[1], sym  # 値, 変化率, 使用シンボル
+        if not data:
+            continue
+        if data[0] is None or data[0] == 0:
+            continue
+        if data[1] is None:
+            continue
+        return data[0], data[1], sym
 
     return None, None, None
+
 
 def get_japan_indices():
     nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
@@ -271,18 +274,17 @@ def get_japan_indices():
     )
     topix_source = "Yahoo/TradingView/Investing"
 
-    # ★ Yahoo/TV/Investing が全部失敗したら None 扱いにする（最重要）
     if topix is None or topix[0] is None:
         topix = (None, None)
 
-    # ② tvcdn 多段フェイルオーバー（既存）
+    # ② tvcdn 多段フェイルオーバー
     if topix[0] is None:
         last, change, source = get_topix_tv_multi()
         if last is not None:
             topix = (last, change)
             topix_source = f"tvcdn:{source}"
 
-    # ③ ★ 最後の安全弁：J-Quants（日次）
+    # ③ J-Quants（日次）
     if topix[0] is None:
         try:
             token = jq_get_token(os.environ["JQ_MAIL"], os.environ["JQ_PASS"])
@@ -291,13 +293,11 @@ def get_japan_indices():
                 topix = (last, change)
                 topix_source = source
         except Exception:
-            pass  # ← ここが重要：絶対に止めない
+            pass
 
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
 
     return nikkei, (topix[0], topix[1], topix_source), mothers
-
-
 
 
 def get_us_indices():
@@ -317,9 +317,8 @@ def get_fx():
 def get_eth():
     return get_price_smart("ETH-USD", tv_symbol="CRYPTO:ETHUSD")
 
-
 # ============================================
-# スコア・コメント・ロジック（変更なし）
+# スコア・コメント・ロジック
 # ============================================
 def score_fgi(fgi):
     if fgi is None: return 0
@@ -328,6 +327,7 @@ def score_fgi(fgi):
     if fgi <= 60: return 0
     if fgi <= 80: return -5
     return -10
+
 
 def score_vix(vix_tuple):
     v = get_price(vix_tuple)
@@ -338,6 +338,7 @@ def score_vix(vix_tuple):
     if v < 30: return -5
     return -10
 
+
 def score_us_equity(sp500_tuple):
     ch = get_change(sp500_tuple)
     if ch is None: return 0
@@ -346,6 +347,7 @@ def score_us_equity(sp500_tuple):
     if ch > -0.3: return 0
     if ch > -1.0: return -5
     return -10
+
 
 def score_jp_equity(nikkei_tuple):
     ch = get_change(nikkei_tuple)
@@ -356,12 +358,14 @@ def score_jp_equity(nikkei_tuple):
     if ch > -1.0: return -3
     return -5
 
+
 def score_fx(usd_jpy_tuple):
     ch = get_change(usd_jpy_tuple)
     if ch is None: return 0
     if ch >= 0.5: return 5
     if ch <= -0.5: return -5
     return 0
+
 
 def score_wti(wti_tuple):
     ch = get_change(wti_tuple)
@@ -370,12 +374,14 @@ def score_wti(wti_tuple):
     if ch <= -2.0: return 5
     return 0
 
+
 def score_rate(us10y_tuple):
     ch = get_change(us10y_tuple)
     if ch is None: return 0
     if ch <= -0.05: return 5
     if ch >= 0.05: return -5
     return 0
+
 
 def generate_score(data):
     raw = 0
@@ -396,6 +402,7 @@ def generate_score(data):
     else: judge = "弱気"
     return score, raw, raw_max, judge
 
+
 def generate_fgi_comment(data):
     fgi = data.get("fgi")
     if fgi is None: return "FGIデータが取得できませんでした。"
@@ -404,6 +411,7 @@ def generate_fgi_comment(data):
     if fgi <= 60: return "FGIは中立圏で、過度な偏りは見られません。"
     if fgi <= 80: return "FGIは強欲寄りで、リスク選好が強まっています。"
     return "FGIは極端な強欲水準で、過熱感が意識されます。"
+
 
 def generate_vix_comment(data):
     vix = get_price(data.get("vix"))
@@ -414,21 +422,29 @@ def generate_vix_comment(data):
     if vix < 30: return "VIXは警戒感が高まっており、リスク管理が重要です。"
     return "VIXは高水準で、リスクオフの動きが強まっています。"
 
+
 def generate_comment(data):
     vix = get_price(data.get("vix"))
     sp_ch = get_change(data.get("sp500"))
     wti_ch = get_change(data.get("wti"))
     parts = []
     if vix is not None:
-        if vix < 20: parts.append("VIXが低下しており、リスクはやや落ち着いた状態です。")
-        elif vix > 30: parts.append("VIXが高く、警戒感の強い相場環境です。")
+        if vix < 20:
+            parts.append("VIXが低下しており、リスクはやや落ち着いた状態です。")
+        elif vix > 30:
+            parts.append("VIXが高く、警戒感の強い相場環境です。")
     if sp_ch is not None:
-        if sp_ch >= 1.0: parts.append("米国株はしっかりと上昇しています。")
-        elif sp_ch <= -1.0: parts.append("米国株は大きく下落しています。")
+        if sp_ch >= 1.0:
+            parts.append("米国株はしっかりと上昇しています。")
+        elif sp_ch <= -1.0:
+            parts.append("米国株は大きく下落しています。")
     if wti_ch is not None:
-        if wti_ch >= 2.0: parts.append("原油価格が上昇しており、インフレ懸念が意識されやすい状況です。")
-        elif wti_ch <= -2.0: parts.append("原油価格が下落しており、インフレ圧力はやや和らいでいます。")
+        if wti_ch >= 2.0:
+            parts.append("原油価格が上昇しており、インフレ懸念が意識されやすい状況です。")
+        elif wti_ch <= -2.0:
+            parts.append("原油価格が下落しており、インフレ圧力はやや和らいでいます。")
     return " ".join(parts) if parts else "大きな方向感は乏しく、様子見ムードの相場です。"
+
 
 def generate_us_comment(data):
     sp = get_change(data.get("sp500"))
@@ -437,12 +453,14 @@ def generate_us_comment(data):
     if sp <= -1.0: return "米国株は下落しており、リスク回避姿勢が強まっています。"
     return "米国市場は小動きで、方向感に欠ける展開です。"
 
+
 def generate_fx_comment(data):
     usd = get_change(data.get("usd_jpy"))
     if usd is None: return "為替データが取得できませんでした。"
     if usd >= 0.5: return "ドル円は上昇しており、円安方向の動きです。"
     if usd <= -0.5: return "ドル円は下落しており、円高方向の動きです。"
     return "為替は落ち着いた値動きです。"
+
 
 def generate_commodities_comment(data):
     wti = get_change(data.get("wti"))
@@ -451,14 +469,19 @@ def generate_commodities_comment(data):
     if wti <= -2.0: return "原油価格が下落しており、インフレ圧力はやや和らいでいます。"
     return "商品市場は比較的落ち着いた動きです。"
 
+
 def generate_rates_comment(data):
     us10 = get_change(data.get("us10y"))
     spread = data.get("yield_spread")
     if us10 is None: return "金利データが取得できませんでした。"
-    if spread is not None and spread < 0: return "イールドカーブは逆転しており、景気後退懸念が意識されます。"
-    if us10 <= -0.05: return "長期金利が低下しており、金融環境はやや緩和方向です。"
-    if us10 >= 0.05: return "長期金利が上昇しており、金融環境は引き締まり方向です。"
+    if spread is not None and spread < 0:
+        return "イールドカーブは逆転しており、景気後退懸念が意識されます。"
+    if us10 <= -0.05:
+        return "長期金利が低下しており、金融環境はやや緩和方向です。"
+    if us10 >= 0.05:
+        return "長期金利が上昇しており、金融環境は引き締まり方向です。"
     return "金利は大きな変動なく推移しています。"
+
 
 def generate_crypto_comment(data):
     btc = get_change(data.get("btc"))
@@ -467,24 +490,19 @@ def generate_crypto_comment(data):
     if btc <= -2.0: return "BTCは下落しており、リスク回避姿勢が見られます。"
     return "仮想通貨市場は落ち着いた動きです。"
 
+
 def generate_copilot_view(data):
-    # 1. データの整理（AIが分析しやすいように抽出）
     fgi = data.get("fgi", "N/A")
-    # VIXなどのリスト形式データから現在の値を取得
-    vix = data.get("vix")[0] if isinstance(data.get("vix"), list) else "N/A"
-    us10y = data.get("us10y")[0] if isinstance(data.get("us10y"), list) else "N/A"
-    
-    # 変化率（%）の取得
+    vix = data.get("vix")[0] if isinstance(data.get("vix"), tuple) else "N/A"
+    us10y = data.get("us10y")[0] if isinstance(data.get("us10y"), tuple) else "N/A"
+
     nk_ch = data.get("nikkei_change", 0)
     sp_ch = data.get("sp500_change", 0)
     wti_ch = data.get("wti_change", 0)
-    
-    # 判定スコア
+
     score = data.get("score", "N/A")
     judge = data.get("judge", "N/A")
 
-    # 2. AIへの「依頼書（プロンプト）」を構築
-    # ※ この文字列を main.py の Gemini が受け取って考えます
     prompt = f"""
 【軍師への分析依頼】
 あなたは冷徹かつ鋭い視点を持つ投資ストラテジストです。
@@ -525,7 +543,6 @@ def get_market_data():
     data["topix_source"] = topix_tuple[2]
     data["mothers"] = mothers
 
-
     # 米国市場
     data["dow"], data["sp500"], data["nasdaq"] = get_us_indices()
 
@@ -537,7 +554,6 @@ def get_market_data():
     # VIX先物（スーパー多重フェイルオーバー）
     data["vix_f"], data["vix_f_source"] = get_vix_futures_super_safe(vix_price, vix_change)
     data["vix_comment"] = generate_vix_comment(data)
-
 
     # 金利
     data["us10y"] = get_price_smart("^TNX", tv_symbol="TVC:US10Y")
@@ -561,6 +577,11 @@ def get_market_data():
     data["btc"] = get_price_smart("BTC-USD", tv_symbol="CRYPTO:BTCUSD")
     data["eth"] = get_eth()
 
+    # 変化率を補助的に保存（Copilot View 用）
+    data["nikkei_change"] = get_change(data["nikkei"])
+    data["sp500_change"] = get_change(data["sp500"])
+    data["wti_change"] = get_change(data["wti"])
+
     # スコア・コメント類
     data["score"], data["raw_score"], data["raw_max"], data["judge"] = generate_score(data)
     data["comment"] = generate_comment(data)
@@ -570,9 +591,8 @@ def get_market_data():
     data["rates_comment"] = generate_rates_comment(data)
     data["crypto_comment"] = generate_crypto_comment(data)
     data["copilot_view"] = generate_copilot_view(data)
-    # ============================
-    # ★ ニュース処理（追加）
-    # ============================
+
+    # ニュース処理
     news_list = fetch_news()
     classified = classify_news_list(news_list)
     war_score, peace_score = score_news(classified)
