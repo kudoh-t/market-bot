@@ -106,12 +106,15 @@ def build_message(d):
         f" ・コメント: {d.get('fgi_comment')}\n",
     ]
 
+    # --- message_builder.py 内の該当箇所を修正 ---
+
     section_japan = [
-    "▼ 1. 日本市場",
-    f" ・日経平均: {safe_fmt(d.get('nikkei'))}",
-    f" ・TOPIX: {safe_fmt(d.get('topix'))}",
-    f"    ┗ 使用指標: {d.get('topix_source', 'N/A')}",
-    f" ・マザーズ: {safe_fmt(d.get('mothers'))}",
+        "▼ 1. 日本市場",
+        f" ・日経平均: {safe_fmt(d.get('nikkei'))}",
+        f"    ┗ 使用指標: {d.get('nikkei_source', 'N/A')}",  # ★ この行を追加
+        f" ・TOPIX: {safe_fmt(d.get('topix'))}",
+        f"    ┗ 使用指標: {d.get('topix_source', 'N/A')}",
+        f" ・マザーズ: {safe_fmt(d.get('mothers'))}",
     ]
 
 

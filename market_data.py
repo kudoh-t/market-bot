@@ -300,46 +300,57 @@ def get_topix_tv_multi():
 
     return None, None, None
 
+# ============================================
+# 日本市場：先物優先の取得ロジック（追加・修正）
+# ============================================
+def get_nikkei_futures():
+    """
+    日経225先物を取得。朝7:00に『最新の相場感』を反映させるため。
+    """
+    # 1. Yahoo Finance: 日経平均先物 (CME)
+    nk_f = get_yf_data("NK=F")
+    if nk_f[0] is not None:
+        return nk_f[0], nk_f[1], "Yahoo:NK=F(CME)"
+
+    # 2. TradingView: 大阪取引所 日経225先物
+    nk_tv = get_from_tradingview_symbol("OSE:NK2251!")
+    if nk_tv[0] is not None:
+        return nk_tv[0], nk_tv[1], "TV:NK2251!(OSE)"
+
+    # 3. 予備: 日経平均現物
+    nk_spot = get_price_smart("^N225", tv_symbol="TVC:N225")
+    if nk_spot[0] is not None:
+        return nk_spot[0], nk_spot[1], "Spot(Fallback)"
+    
+    return None, None, None
 
 def get_japan_indices():
-    nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
+    """
+    日経平均（先物）とTOPIX、グロースを一括取得する関数。
+    """
+    # 日経平均を取得
+    nk_val, nk_ch, nk_src = get_nikkei_futures()
+    nikkei = (nk_val, nk_ch, nk_src)
 
-    # ① Yahoo → TradingView → Investing（既存メイン）
-    topix = get_price_smart(
+    # TOPIX（J-Quantsを外し、Yahoo/TradingViewを強化）
+    topix_data = get_price_smart(
         "^TOPX",
         tv_symbol="TVC:TOPX",
         investing_url="https://www.investing.com/indices/topix"
     )
     topix_source = "Yahoo/TradingView/Investing"
 
-    if topix is None or topix[0] is None:
-        topix = (None, None)
-
-    # ② tvcdn 多段フェイルオーバー（成功条件を厳密化）
-    if topix[0] is None:
+    # 上記が失敗した場合のtvcdnフェイルオーバー
+    if topix_data[0] is None:
         last, change, source = get_topix_tv_multi()
-        if (
-            last is not None and last != 0 and
-            change is not None and
-            source is not None
-        ):
-            topix = (last, change)
+        if last:
+            topix_data = (last, change)
             topix_source = f"tvcdn:{source}"
 
-    # ③ J-Quants（日次） ← ★ここが必ず呼ばれるようになる
-    if topix[0] is None:
-        try:
-            token = jq_get_token(os.environ["JQ_MAIL"], os.environ["JQ_PASS"])
-            last, change, source = jq_get_topix_daily(token)
-            if last is not None:
-                topix = (last, change)
-                topix_source = source
-        except Exception:
-            pass
-
+    # 新興市場（旧マザーズ）
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
 
-    return nikkei, (topix[0], topix[1], topix_source), mothers
+    return nikkei, (topix_data[0], topix_data[1], topix_source), mothers
 
 
 def get_us_indices():
@@ -578,11 +589,19 @@ def get_market_data():
     data["fgi"], data["fgi_prev"] = get_fgi()
     data["fgi_comment"] = generate_fgi_comment(data)
 
-    # 日本市場
-    nikkei, topix_tuple, mothers = get_japan_indices()
-    data["nikkei"] = nikkei
+    # --- get_market_data() 関数の中身を以下のように書き換え ---
+
+    # 日本市場の取得
+    nikkei_tuple, topix_tuple, mothers = get_japan_indices()
+    
+    # 日経（先物）：(値, 変化率) を保存
+    data["nikkei"] = (nikkei_tuple[0], nikkei_tuple[1])
+    data["nikkei_source"] = nikkei_tuple[2]
+    
+    # TOPIX：(値, 変化率) を保存
     data["topix"] = (topix_tuple[0], topix_tuple[1])
     data["topix_source"] = topix_tuple[2]
+    
     data["mothers"] = mothers
 
     # 米国市場
