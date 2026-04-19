@@ -37,6 +37,7 @@ def jq_get_topix_daily(token):
     last = float(rows[-1]["close"])
     prev = float(rows[-2]["close"])
     change = (last - prev) / prev * 100
+    print("JQ response:", res)
 
     return last, change, "J-Quants"
 
