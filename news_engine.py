@@ -42,7 +42,7 @@ NEWS_SOURCE_SCORE = {
     "cnn": 80,
     "cnbc": 85,
     "nikkei": 90,
-    "yahoo": 85,
+    "yahoo": 85,   # ← 日本語ニュース強化
     "nhk": 90,
     "unknown": 50
 }
@@ -99,7 +99,7 @@ def get_news_importance(title):
     score = 0
     if geo: score += 20
     if mon: score += 20
-    if ind: score += 30
+    if ind: score += 30   # ← 産業ニュース強化
     return min(30, score)
 
 # ============================================
@@ -137,7 +137,9 @@ def fetch_news(max_items=20):
             seen.add(n["title"])
 
     unique.sort(key=lambda x: x["normalized_score"], reverse=True)
-    return [n for n in unique if n["score"] >= 65][:max_items]
+
+    # ← フィルタ緩和（70 → 60）
+    return [n for n in unique if n["score"] >= 60][:max_items]
 
 # ============================================
 # ニュース分類（優先度方式）
