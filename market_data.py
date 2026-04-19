@@ -13,6 +13,27 @@ headers = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+# J-Quantsトークンの取得
+def jq_get_token(mail, password):
+    url = "https://api.jpx-jquants.com/v1/token/auth_user"
+    payload = {"mailaddress": mail, "password": password}
+    res = requests.post(url, json=payload).json()
+    return res["token"]
+# J QuantsでTOPIXの日次データを取得
+def jq_get_topix_daily(token):
+    url = "https://api.jpx-jquants.com/v1/indexes/daily?index=1300"
+    headers = {"Authorization": f"Bearer {token}"}
+    res = requests.get(url, headers=headers).json()
+
+    rows = res.get("indexes", [])
+    if len(rows) < 2:
+        return None, None, "J-Quants"
+
+    last = float(rows[-1]["close"])
+    prev = float(rows[-2]["close"])
+    change = (last - prev) / prev * 100
+
+    return last, change, "J-Quants"
 
 # ============================================
 # 汎用ユーティリティ
@@ -238,19 +259,31 @@ def get_topix_tv_multi():
 def get_japan_indices():
     nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
 
-    # ① Yahoo → TradingView → Investing
+    # ① Yahoo → TradingView → Investing（既存メイン）
     topix = get_price_smart(
-    "^TOPX",                     # ← Yahoo Finance 正式ティッカー
-    tv_symbol="TVC:TOPX",
-    investing_url="https://www.investing.com/indices/topix"
+        "^TOPX",
+        tv_symbol="TVC:TOPX",
+        investing_url="https://www.investing.com/indices/topix"
     )
     topix_source = "Yahoo/TradingView/Investing"
 
-    # ② tvcdn 多段フェイルオーバー
+    # ② tvcdn 多段フェイルオーバー（既存）
     if topix[0] is None:
         last, change, source = get_topix_tv_multi()
-        topix = (last, change)
-        topix_source = f"tvcdn:{source}"
+        if last is not None:
+            topix = (last, change)
+            topix_source = f"tvcdn:{source}"
+
+    # ③ ★ 最後の安全弁：J-Quants（日次）
+    if topix[0] is None:
+        try:
+            token = jq_get_token(JQ_MAIL, JQ_PASS)
+            last, change, source = jq_get_topix_daily(token)
+            if last is not None:
+                topix = (last, change)
+                topix_source = source
+        except Exception:
+            pass  # ← ここが重要：絶対に落とさない
 
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
 
