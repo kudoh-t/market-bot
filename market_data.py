@@ -116,26 +116,29 @@ def get_from_investing(url):
 # ============================================
 def get_price_smart(ticker, tv_symbol=None, investing_url=None):
     """
-    優先順位を Yahoo Finance に変更して安定化
+    優先順位を Yahoo Finance → TradingView → Investing にして、
+    どれも値が取れなかった場合は (None, None) を返す。
     """
     # 1. Yahoo Finance (メイン)
     yf_data = get_yf_data(ticker)
-    if yf_data[0] is not None:
+    if yf_data is not None and yf_data[0] is not None:
         return yf_data
 
     # 2. TradingView (バックアップ)
     if tv_symbol:
         tv = get_from_tradingview_symbol(tv_symbol)
-        if tv[0] is not None:
+        if tv is not None and tv[0] is not None:
             return tv
 
     # 3. Investing.com
     if investing_url:
         inv = get_from_investing(investing_url)
-        if inv[0] is not None:
+        if inv is not None and inv[0] is not None:
             return inv
 
-    return None, None
+    # ★ 全部失敗したら None 扱いにする（これが最重要）
+    return (None, None)
+
 
 
 # ============================================
@@ -268,7 +271,7 @@ def get_japan_indices():
     )
     topix_source = "Yahoo/TradingView/Investing"
 
-    # ★ Yahoo が (None, None) を返した場合は失敗扱いにする
+    # ★ Yahoo/TV/Investing が全部失敗したら None 扱いにする（最重要）
     if topix is None or topix[0] is None:
         topix = (None, None)
 
