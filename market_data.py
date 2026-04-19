@@ -25,21 +25,28 @@ def jq_get_token(mail, password):
     return res["token"]
 
 
-def jq_get_topix_daily(token):
-    url = "https://api.jpx-jquants.com/v1/indexes/daily?index=1300"
-    h = {"Authorization": f"Bearer {token}"}
-    res = requests.get(url, headers=h).json()
+def jq_get_token(mail, password):
+    url = "https://api.jpx-jquants.com/v1/token/auth_user"
+    payload = {"mailaddress": mail, "password": password}
 
-    rows = res.get("indexes", [])
-    if len(rows) < 2:
-        return None, None, "J-Quants"
+    print("=== J-Quants Token Request ===")
+    print("MAIL:", repr(mail))
+    print("PASS:", repr(password))
 
-    last = float(rows[-1]["close"])
-    prev = float(rows[-2]["close"])
-    change = (last - prev) / prev * 100
-    print("JQ response:", res)
+    try:
+        res = requests.post(url, json=payload).json()
+        print("JQ token response:", res)
 
-    return last, change, "J-Quants"
+        if "token" not in res:
+            print("JQ ERROR: token がレスポンスに存在しません")
+            return None
+
+        return res["token"]
+
+    except Exception as e:
+        print("JQ token exception:", e)
+        return None
+
 
 # ============================================
 # 汎用ユーティリティ
