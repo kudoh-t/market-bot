@@ -278,14 +278,18 @@ def get_japan_indices():
     if topix is None or topix[0] is None:
         topix = (None, None)
 
-    # ② tvcdn 多段フェイルオーバー
+    # ② tvcdn 多段フェイルオーバー（成功条件を厳密化）
     if topix[0] is None:
         last, change, source = get_topix_tv_multi()
-        if last is not None:
+        if (
+            last is not None and last != 0 and
+            change is not None and
+            source is not None
+        ):
             topix = (last, change)
             topix_source = f"tvcdn:{source}"
 
-    # ③ J-Quants（日次）
+    # ③ J-Quants（日次） ← ★ここが必ず呼ばれるようになる
     if topix[0] is None:
         try:
             token = jq_get_token(os.environ["JQ_MAIL"], os.environ["JQ_PASS"])
