@@ -159,10 +159,10 @@ def score_news(classified):
 
     war_sum = get_cat_sum("geopolitics")
     mon_sum = get_cat_sum("monetary")
-    ind_sum = get_cat_sum("industry")
+    ind_sum = get_cat_sum("other")
 
     # 地政学のノイズを 0.6倍に抑制 (弱気バイアスの緩和)
-    # 金融政策と産業ニュースを合算して強気スコアとする
+    # 金融政策と産業ニュース(other)を合算して強気スコアとする
     war_score = int(war_sum * 0.6)
     peace_score = int((mon_sum * 1.0) + (ind_sum * 1.2)) # 実体経済を1.2倍で評価
 
