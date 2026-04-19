@@ -1,13 +1,12 @@
 import feedparser
 
-# スコアの最大値（正規化用）
 MAX_TOTAL_SCORE = 125
 
 # ============================================
-# RSS FEEDS（海外＋日本語ニュース統合版）
+# RSS FEEDS（海外＋日本語ニュース統合）
 # ============================================
 RSS_FEEDS = [
-    # --- 海外ニュース ---
+    # --- 海外 ---
     "https://feeds.reuters.com/reuters/topNews",
     "https://feeds.reuters.com/Reuters/worldNews",
     "https://feeds.marketwatch.com/marketwatch/marketpulse/",
@@ -16,7 +15,7 @@ RSS_FEEDS = [
     "https://apnews.com/rss",
     "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
 
-    # --- 日本語ニュース（追加） ---
+    # --- 日本語 ---
     "https://jp.reuters.com/rssFeed/topNews",
     "https://jp.reuters.com/rssFeed/worldNews",
     "https://jp.reuters.com/rssFeed/businessNews",
@@ -32,7 +31,9 @@ RSS_FEEDS = [
     "https://www.nikkei.com/rss/news",
 ]
 
-# 信頼スコア辞書
+# ============================================
+# 信頼スコア（日本語ニュース強化）
+# ============================================
 NEWS_SOURCE_SCORE = {
     "reuters": 95,
     "marketwatch": 85,
@@ -41,14 +42,14 @@ NEWS_SOURCE_SCORE = {
     "bbc": 90,
     "cnn": 80,
     "cnbc": 85,
-    "nikkei": 90,
-    "yahoo": 85,   # ← 日本語ニュース強化
-    "nhk": 90,
+    "nikkei": 92,
+    "yahoo": 88,   # ← 日本語ニュース強化
+    "nhk": 92,
     "unknown": 50
 }
 
 # ============================================
-# キーワード辞書（日本語ニュース最適化）
+# キーワード（金融・産業強化）
 # ============================================
 GEOPOLITICS_KEYWORDS = [
     "戦闘","攻撃","停戦","軍事","ミサイル","侵攻","紛争","中東","ガザ","イスラエル",
@@ -98,14 +99,14 @@ def get_news_importance(title):
 
     score = 0
     if geo: score += 20
-    if mon: score += 20
-    if ind: score += 30   # ← 産業ニュース強化
-    return min(30, score)
+    if mon: score += 30   # ← 金融ニュース強化
+    if ind: score += 35   # ← 産業ニュース強化
+    return min(40, score)
 
 # ============================================
-# ニュース取得
+# ニュース取得（フィルタ緩和＋件数拡大）
 # ============================================
-def fetch_news(max_items=20):
+def fetch_news(max_items=40):
     news = []
     for url in RSS_FEEDS:
         try:
@@ -138,8 +139,8 @@ def fetch_news(max_items=20):
 
     unique.sort(key=lambda x: x["normalized_score"], reverse=True)
 
-    # ← フィルタ緩和（70 → 60）
-    return [n for n in unique if n["score"] >= 60][:max_items]
+    # ← フィルタ緩和（60 → 50）
+    return [n for n in unique if n["score"] >= 50][:max_items]
 
 # ============================================
 # ニュース分類（優先度方式）
@@ -195,6 +196,6 @@ def score_news(classified):
     ind_sum = get_cat_sum("other")
 
     war_score = int(war_sum * 0.6)
-    peace_score = int(mon_sum + ind_sum * 1.2)
+    peace_score = int(mon_sum * 1.2 + ind_sum * 1.3)
 
     return war_score, peace_score
