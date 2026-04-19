@@ -277,13 +277,13 @@ def get_japan_indices():
     # ③ ★ 最後の安全弁：J-Quants（日次）
     if topix[0] is None:
         try:
-            token = jq_get_token(JQ_MAIL, JQ_PASS)
+            token = jq_get_token(os.environ["JQ_MAIL"], os.environ["JQ_PASS"])
             last, change, source = jq_get_topix_daily(token)
             if last is not None:
                 topix = (last, change)
                 topix_source = source
         except Exception:
-            pass  # ← ここが重要：絶対に落とさない
+            pass  # ← ここが重要：絶対に止めない
 
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
 
