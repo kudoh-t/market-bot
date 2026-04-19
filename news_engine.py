@@ -116,24 +116,38 @@ def fetch_news(max_items=20):
     return [n for n in unique_news if n["score"] >= 70][:max_items]
 
 def classify_news_list(news_list):
-    result = {"categories": {"geopolitics": [], "monetary": [], "industry": [], "other": []}}
-    for n in news_list:
-        title = n["title"].lower()
-        geo = any(k.lower() in title for k in GEOPOLITICS_KEYWORDS)
-        mon = any(k.lower() in title for k in MONETARY_KEYWORDS)
-        ind = any(k.lower() in title for k in INDUSTRY_KEYWORDS)
+    result = {"categories": {"geopolitics": [], "monetary": [], "other": []}}
 
-        # 産業・テックを最優先でチェックし、地政学と重複しても両方に入れる
-        if ind:
-            result["categories"]["industry"].append(n)
-        
-        if geo:
+    for n in news_list:
+        title = n["title"]
+
+        geo_hit = any(k in title for k in GEOPOLITICS_KEYWORDS)
+        mon_hit = any(k in title for k in MONETARY_KEYWORDS)
+
+        if geo_hit and not mon_hit:
             result["categories"]["geopolitics"].append(n)
-        elif mon:
+        elif mon_hit and not geo_hit:
             result["categories"]["monetary"].append(n)
-        elif not ind:
+        elif geo_hit and mon_hit:
+            result["categories"]["geopolitics"].append(n)
+        else:
             result["categories"]["other"].append(n)
+
+    # --- カテゴリ間の重複排除（地政学を最優先） ---
+    geo_titles = {n["title"] for n in result["categories"]["geopolitics"]}
+
+    result["categories"]["monetary"] = [
+        n for n in result["categories"]["monetary"]
+        if n["title"] not in geo_titles
+    ]
+
+    result["categories"]["other"] = [
+        n for n in result["categories"]["other"]
+        if n["title"] not in geo_titles
+    ]
+
     return result
+
 
 def score_news(classified):
     """
