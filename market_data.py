@@ -240,9 +240,9 @@ def get_japan_indices():
 
     # ① Yahoo → TradingView → Investing
     topix = get_price_smart(
-        "^TPX",
-        tv_symbol="TVC:TOPX",
-        investing_url="https://www.investing.com/indices/topix"
+    "^TOPX",                     # ← Yahoo Finance 正式ティッカー
+    tv_symbol="TVC:TOPX",
+    investing_url="https://www.investing.com/indices/topix"
     )
     topix_source = "Yahoo/TradingView/Investing"
 
