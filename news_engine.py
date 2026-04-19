@@ -35,22 +35,43 @@ NEWS_SOURCE_SCORE = {
 # キーワード辞書（実体経済・テックを新設）
 # ============================================
 GEOPOLITICS_KEYWORDS = [
+    # 日本語
     "戦闘","攻撃","停戦","軍事","ミサイル","侵攻","紛争","中東","ガザ","イスラエル",
-    "イラン","ロシア","ウクライナ","制裁","地政学","核","防衛","報復","war", "conflict", 
-    "military", "missile", "attack", "strike", "invasion", "geopolitics", "sanction"
+    "イラン","ロシア","ウクライナ","制裁","核","防衛","報復","北朝鮮","台湾海峡",
+    "紅海","ホルムズ","自衛隊","領空","領海","衝突",
+
+    # 英語
+    "war","conflict","military","missile","attack","strike","invasion",
+    "geopolitics","sanction","airstrike","border","hostage","houthi",
+    "red sea","hormuz","taiwan strait","navy"
 ]
+
 
 MONETARY_KEYWORDS = [
-    "利上げ","利下げ","金利","FOMC","FRB","ECB","日銀","金融政策","量的緩和","QT","インフレ",
-    "CPI","PCE","失業率","景気後退","景気減速","タカ派","ハト派","rate hike", "rate cut", 
-    "interest rate", "inflation", "cpi", "fed", "monetary policy", "recession"
+    # 日本語
+    "利上げ","利下げ","金利","FOMC","FRB","ECB","日銀","金融政策","量的緩和","QT",
+    "インフレ","デフレ","CPI","PCE","失業率","景気後退","景気減速","タカ派","ハト派",
+    "国債","長期金利","短期金利","為替","円安","円高",
+
+    # 英語
+    "rate hike","rate cut","interest rate","inflation","cpi","pce","fed",
+    "monetary policy","recession","treasury","bond yield","ecb","boj"
 ]
 
+
 INDUSTRY_KEYWORDS = [
-    "決算","上方修正","増益","増配","設備投資","半導体","人工知能","生成AI","DX",
-    "先行指標","受注","GDP","PMI","earnings", "results", "guidance", "upside", "dividend", 
-    "semiconductor", "ai", "nvidia", "tsmc", "investment", "orders", "gdp", "pmi"
+    # 日本語（強化）
+    "決算","上方修正","下方修正","増益","減益","増配","減配","設備投資","半導体",
+    "人工知能","生成AI","DX","受注","GDP","PMI","製造業","サービス業","輸出","輸入",
+    "企業","市場","株価","業績","経済","物価","消費","自動車","電機","通信","IT",
+    "新製品","新サービス","投資","資金調達","上場","IPO",
+
+    # 英語
+    "earnings","results","guidance","upside","dividend","semiconductor",
+    "ai","nvidia","tsmc","investment","orders","gdp","pmi","manufacturing",
+    "tech","industry","market","company"
 ]
+
 
 # ============================================
 # ユーティリティ
@@ -123,30 +144,20 @@ def classify_news_list(news_list):
 
         geo_hit = any(k in title for k in GEOPOLITICS_KEYWORDS)
         mon_hit = any(k in title for k in MONETARY_KEYWORDS)
+        ind_hit = any(k in title for k in INDUSTRY_KEYWORDS)
 
-        if geo_hit and not mon_hit:
+        # --- 優先度方式 ---
+        if geo_hit:
             result["categories"]["geopolitics"].append(n)
-        elif mon_hit and not geo_hit:
+        elif mon_hit:
             result["categories"]["monetary"].append(n)
-        elif geo_hit and mon_hit:
-            result["categories"]["geopolitics"].append(n)
+        elif ind_hit:
+            result["categories"]["other"].append(n)
         else:
             result["categories"]["other"].append(n)
 
-    # --- カテゴリ間の重複排除（地政学を最優先） ---
-    geo_titles = {n["title"] for n in result["categories"]["geopolitics"]}
-
-    result["categories"]["monetary"] = [
-        n for n in result["categories"]["monetary"]
-        if n["title"] not in geo_titles
-    ]
-
-    result["categories"]["other"] = [
-        n for n in result["categories"]["other"]
-        if n["title"] not in geo_titles
-    ]
-
     return result
+
 
 
 def score_news(classified):
