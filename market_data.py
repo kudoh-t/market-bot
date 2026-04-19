@@ -218,11 +218,27 @@ def get_vix_futures_super_safe(vix_price, vix_change):
 # ============================================
 def get_topix_tv():
     return get_from_tradingview_symbol("TVC:TOPX")
+def get_topix_tv_multi():
+    symbols = [
+        "TVC:TOPX",
+        "TVC:TOPIX",
+        "INDEX:TOPX",
+        "INDEX:TOPIX",
+        "JPX:TOPX",
+        "TSE:TOPX",
+    ]
+
+    for sym in symbols:
+        data = get_from_tradingview_symbol(sym)
+        if data[0] is not None:
+            return data[0], data[1], sym  # 値, 変化率, 使用シンボル
+
+    return None, None, None
 
 def get_japan_indices():
     nikkei = get_price_smart("^N225", tv_symbol="TVC:N225")
 
-    # TOPIX：Yahoo → TradingView → Investing → TradingView(tvcdn)
+    # ① Yahoo → TradingView → Investing
     topix = get_price_smart(
         "^TPX",
         tv_symbol="TVC:TOPX",
@@ -230,11 +246,14 @@ def get_japan_indices():
     )
     topix_source = "Yahoo/TradingView/Investing"
 
+    # ② tvcdn 多段フェイルオーバー
     if topix[0] is None:
-        topix = get_topix_tv()  # ← 最後の砦（tvcdn）
-        topix_source = "tvcdn"
+        last, change, source = get_topix_tv_multi()
+        topix = (last, change)
+        topix_source = f"tvcdn:{source}"
 
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
+
     return nikkei, (topix[0], topix[1], topix_source), mothers
 
 
