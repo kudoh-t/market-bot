@@ -303,55 +303,37 @@ def get_topix_tv_multi():
 # ============================================
 # 日本市場：先物優先の取得ロジック（追加・修正）
 # ============================================
+# --- 修正後の get_japan_indices 周辺 ---
+
 def get_nikkei_futures():
-    """
-    日経225先物を取得。朝7:00に『最新の相場感』を反映させるため。
-    """
-    # 1. Yahoo Finance: 日経平均先物 (CME)
+    """日経225先物を取得(CME/OSE優先)"""
+    # 1. Yahoo Finance (CME先物)
     nk_f = get_yf_data("NK=F")
     if nk_f[0] is not None:
         return nk_f[0], nk_f[1], "Yahoo:NK=F(CME)"
-
-    # 2. TradingView: 大阪取引所 日経225先物
+    # 2. TradingView (大阪先物)
     nk_tv = get_from_tradingview_symbol("OSE:NK2251!")
     if nk_tv[0] is not None:
         return nk_tv[0], nk_tv[1], "TV:NK2251!(OSE)"
-
-    # 3. 予備: 日経平均現物
+    # 3. フォールバック
     nk_spot = get_price_smart("^N225", tv_symbol="TVC:N225")
-    if nk_spot[0] is not None:
-        return nk_spot[0], nk_spot[1], "Spot(Fallback)"
-    
-    return None, None, None
+    return (nk_spot[0], nk_spot[1], "Spot(Fallback)")
 
 def get_japan_indices():
-    """
-    日経平均（先物）とTOPIX、グロースを一括取得する関数。
-    """
-    # 日経平均を取得
     nk_val, nk_ch, nk_src = get_nikkei_futures()
     nikkei = (nk_val, nk_ch, nk_src)
 
-    # TOPIX（J-Quantsを外し、Yahoo/TradingViewを強化）
-    topix_data = get_price_smart(
-        "^TOPX",
-        tv_symbol="TVC:TOPX",
-        investing_url="https://www.investing.com/indices/topix"
-    )
-    topix_source = "Yahoo/TradingView/Investing"
+    topix_data = get_price_smart("^TOPX", tv_symbol="TVC:TOPX")
+    topix_source = "Yahoo/TradingView"
 
-    # 上記が失敗した場合のtvcdnフェイルオーバー
     if topix_data[0] is None:
         last, change, source = get_topix_tv_multi()
         if last:
             topix_data = (last, change)
             topix_source = f"tvcdn:{source}"
 
-    # 新興市場（旧マザーズ）
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
-
     return nikkei, (topix_data[0], topix_data[1], topix_source), mothers
-
 
 def get_us_indices():
     dow = get_price_smart("^DJI", tv_symbol="TVC:DJI")
@@ -595,13 +577,11 @@ def get_market_data():
     nikkei_tuple, topix_tuple, mothers = get_japan_indices()
     
     # 日経（先物）：(値, 変化率) を保存
+    nikkei_tuple, topix_tuple, mothers = get_japan_indices()
     data["nikkei"] = (nikkei_tuple[0], nikkei_tuple[1])
     data["nikkei_source"] = nikkei_tuple[2]
-    
-    # TOPIX：(値, 変化率) を保存
     data["topix"] = (topix_tuple[0], topix_tuple[1])
     data["topix_source"] = topix_tuple[2]
-    
     data["mothers"] = mothers
 
     # 米国市場
