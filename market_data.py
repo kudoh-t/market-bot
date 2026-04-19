@@ -268,6 +268,10 @@ def get_japan_indices():
     )
     topix_source = "Yahoo/TradingView/Investing"
 
+    # ★ Yahoo が (None, None) を返した場合は失敗扱いにする
+    if topix[0] is None:
+        topix = (None, None)
+
     # ② tvcdn 多段フェイルオーバー（既存）
     if topix[0] is None:
         last, change, source = get_topix_tv_multi()
