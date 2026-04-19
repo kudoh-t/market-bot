@@ -2,7 +2,7 @@ name: Daily Market Bot
 
 on:
   schedule:
-    - cron: "0 22 * * *"   # ★ JST 07:00（元のまま）
+    - cron: "0 22 * * *"   # 時間はそのまま
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          path: .
 
       - name: Set up Python
         uses: actions/setup-python@v4
