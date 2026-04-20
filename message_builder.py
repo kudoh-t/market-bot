@@ -106,11 +106,17 @@ def build_message(d):
         f" ・コメント: {d.get('fgi_comment')}\n",
     ]
 
-    # --- message_builder.py の該当箇所 ---
+    # --- message_builder.py の修正箇所 ---
+
+    # 日本市場の表示ラベルを動的に判定
+    nk_source = d.get('nikkei_source', '')
+    # ソース名に "CME" や "OSE" が含まれていれば「(先物)」と表示
+    nk_label = "日経平均(先物)" if any(s in nk_source for s in ["CME", "OSE"]) else "日経平均"
+
     section_japan = [
         "▼ 1. 日本市場",
-        f" ・日経平均: {safe_fmt(d.get('nikkei'))}",
-        f"    ┗ 使用指標: {d.get('nikkei_source', 'N/A')}",  # ★追加
+        f" ・{nk_label}: {safe_fmt(d.get('nikkei'))}", # ★ラベルを動的に変更
+        f"    ┗ 使用指標: {nk_source if nk_source else 'N/A'}",
         f" ・TOPIX: {safe_fmt(d.get('topix'))}",
         f"    ┗ 使用指標: {d.get('topix_source', 'N/A')}",
         f" ・マザーズ: {safe_fmt(d.get('mothers'))}",
