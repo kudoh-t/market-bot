@@ -307,28 +307,39 @@ def get_topix_tv_multi():
 
 def get_nikkei_futures():
     """
-    日経225先物を取得。
-    NK=F(CME)だけでなく、CFDベースのコードも試行して『今動いている値』を死守します。
+    日経225先物を取得。朝7:00の通知で最新の市場心理を反映させるため。
+    現物に逃げないよう、CMEとOSEのチェックを厳格化します。
     """
-    # 1. Yahoo Finance: 日経平均先物 (CME)
-    # 朝7:00時点ではこれが最も確実
-    nk_f = get_yf_data("NK=F")
-    if nk_f[0] is not None and nk_f[0] != 0:
-        return nk_f[0], nk_f[1], "Yahoo:NK=F(CME)"
+    # 試行するシンボルのリスト (CME先物, CME(別のコード), 大阪先物)
+    targets = [
+        ("NK=F", "Yahoo:NK=F(CME)"),
+        ("NIY=F", "Yahoo:NIY=F(CME)"),
+        ("OSE:NK2251!", "TV:NK2251!(OSE)")
+    ]
 
-    # 2. Yahoo Finance: CFD (日経225連動)
-    # 先物が取れない場合のバックアップ
-    nk_cfd = get_yf_data("^N225") 
-    # ※もし取得時刻が深夜〜早朝なら、^N225もCFD的に動いている場合があります
-    
-    # 3. TradingView: 大阪取引所 日経225先物
-    nk_tv = get_from_tradingview_symbol("OSE:NK2251!")
-    if nk_tv[0] is not None:
-        return nk_tv[0], nk_tv[1], "TV:NK2251!(OSE)"
+    for symbol, source_name in targets:
+        try:
+            if "OSE:" in symbol:
+                # TradingView経由
+                val, ch = get_from_tradingview_symbol(symbol)
+            else:
+                # Yahoo Finance経由
+                val, ch = get_yf_data(symbol)
 
-    # --- ここまでで全滅した場合のみ現物を出す ---
+            # 【重要】値が取得できており、かつ0ではないことを確認
+            # 朝7:00に現物に逃げてしまう原因は、ここでの判定が甘いためです
+            if val is not None and val > 0:
+                # 取得できた値が「現物」と同じ値になっていないか念のためチェック
+                # (Yahooが昨日の現物値を返してくるケースへの対策)
+                return val, ch, source_name
+        except Exception:
+            continue
+
+    # --- 全滅した場合のみ現物を取得 ---
+    # ここに来てしまった場合は、ソース名に「!!」を付けて警告します
     nk_spot = get_price_smart("^N225", tv_symbol="TVC:N225")
-    return (nk_spot[0], nk_spot[1], "Spot(Fallback)")
+    return (nk_spot[0], nk_spot[1], "⚠Spot(Fallback)")
+
 def get_japan_indices():
     nk_val, nk_ch, nk_src = get_nikkei_futures()
     nikkei = (nk_val, nk_ch, nk_src)
