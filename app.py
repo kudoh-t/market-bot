@@ -3,7 +3,7 @@ import os
 import requests
 import time
 import google.generativeai as genai  # ★ 追加
-
+from predict_ai import get_ai_prediction
 from market_data import get_market_data
 from message_builder import build_message
 from analysis import analyze_market
@@ -77,6 +77,18 @@ def send_line(message):
 
     print("LINE送信に失敗しました（リトライ上限）")
 
+def build_news_summary(data):
+    """classified_news から簡易ニュース要約を作る"""
+    classified = data.get("classified_news", {})
+    categories = classified.get("categories", {})
+
+    lines = []
+    for cat in ["industry", "monetary", "geopolitics", "other"]:
+        for n in categories.get(cat, [])[:2]:
+            lines.append(n.get("title", ""))
+
+    return " / ".join(lines)[:800]  # プロンプトが長くなりすぎないように制限
+
 
 # ============================
 # メイン処理
@@ -89,8 +101,6 @@ def main():
     data = get_market_data()
 
     # ② ニュース・スコア分析
-    # ここで market_data.py 内の generate_copilot_view() が走り、
-    # data["copilot_view"] に「AIへの依頼書（プロンプト）」が格納される
     analysis = analyze_market(
         data,
         data["classified_news"],
@@ -101,12 +111,24 @@ def main():
     # ③ 分析結果を data に統合
     data.update(analysis)
 
-    # ④ AIによるインサイト生成（★ 追加：ここが「キャラ変」の核心）
+    # ③.5 AI予測（方向性スコア）を追加 ★ここを追加
+    try:
+        news_summary = build_news_summary(data)
+        ai = get_ai_prediction(news_summary)
+    except Exception as e:
+        ai = {
+            "up_prob": None,
+            "down_prob": None,
+            "score": None,
+            "reason": f"AI予測エラー: {e}"
+        }
+    data["ai_prediction"] = ai
+
+    # ④ AIによるインサイト生成（Gemini）
     prompt_from_logic = data.get("copilot_view")
     if prompt_from_logic and "依頼" in prompt_from_logic:
         print("Gemini API に問い合わせ中...")
         ai_insight = get_gemini_insight(prompt_from_logic)
-        # 元の「依頼文（プロンプト）」を AI の「回答」で上書きする
         data["copilot_view"] = ai_insight
     else:
         print("AIへの依頼文が見つからないか、形式が正しくありません。")
@@ -118,6 +140,7 @@ def main():
     print("LINE送信プロセスへ...")
     send_line(report)
     print("--- プロセス完了 ---")
+
 
 
 if __name__ == "__main__":

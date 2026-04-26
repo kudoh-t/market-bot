@@ -92,6 +92,26 @@ def sort_news_by_category(classified):
             reverse=True
         )
     return classified
+def build_ai_section(ai):
+    if not ai:
+        return "▼ 12. AI予測\n ・AI予測データなし\n"
+
+    up = ai.get("up_prob")
+    down = ai.get("down_prob")
+    score = ai.get("score")
+    reason = ai.get("reason", "")
+
+    # パーセント表示
+    up_pct = f"{up*100:.1f}%" if up is not None else "N/A"
+    down_pct = f"{down*100:.1f}%" if down is not None else "N/A"
+
+    return (
+        "▼ 11. AI予測\n"
+        f" ・上昇確率: {up_pct}\n"
+        f" ・下落確率: {down_pct}\n"
+        f" ・AIスコア: {score}\n"
+        f" ・理由: {reason}\n"
+    )
 
 
 def build_message(d):
@@ -186,6 +206,12 @@ def build_message(d):
         build_news_section(d),
         "\n",
     ]
+    # ★ AI予測セクション
+    ai = d.get("ai_prediction")  # app.py から渡す
+    section_ai = [
+        build_ai_section(ai),
+        "\n",
+    ]
 
     section_copilot = [
         "▼ 10. Copilot View",
@@ -194,7 +220,7 @@ def build_message(d):
     ]
 
     section_score = [
-        "▼ 11. 総合スコア",
+        "▼ 12. 総合スコア",
         f" ・スコア: {d.get('score', 'N/A')} / 100",
         f" ・素点: {d.get('raw_score', 'N/A')} / {d.get('raw_max', 'N/A')}",
         f" ・判定: {d.get('judge', 'N/A')}",
@@ -211,8 +237,9 @@ def build_message(d):
         + section_crypto
         + section_comment
         + section_news      # ★ 追加
-        + section_copilot
-        + section_score
+        + section_copilot   #10
+        + section_ai        #11
+        + section_score      #12
     )
 
     return message
