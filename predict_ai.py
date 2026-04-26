@@ -149,6 +149,7 @@ REASON: （簡潔に）
 """
 
     ai_text = call_gemini_api(prompt)
+    print("Gemini生レスポンス:", ai_text)  # ★ 追加
     result = parse_ai_output(ai_text)
 
     return result
