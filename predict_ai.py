@@ -54,17 +54,22 @@ def get_market_snapshot():
 # ============================================================
 
 def call_gemini_api(prompt):
-    """Gemini API を呼び出してテキストを取得"""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("環境変数 GEMINI_API_KEY が設定されていません")
 
-    #url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
 
     headers = {"Content-Type": "application/json"}
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
     }
 
     response = requests.post(
@@ -74,10 +79,11 @@ def call_gemini_api(prompt):
     )
 
     result = response.json()
+
     try:
         return result["candidates"][0]["content"]["parts"][0]["text"]
-    except:
-        return "AI応答の解析に失敗しました"
+    except Exception as e:
+        return f"AI応答の解析に失敗しました: {result}"
 
 
 # ============================================================
