@@ -115,6 +115,7 @@ def main():
     try:
         news_summary = build_news_summary(data)
         ai = get_ai_prediction(news_summary)
+        print("AI予測データ:", ai)
     except Exception as e:
         ai = {
             "up_prob": None,
