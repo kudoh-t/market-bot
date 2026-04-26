@@ -3,7 +3,7 @@ import os
 import requests
 import time
 import google.generativeai as genai  # ★ 追加
-from predict_ai import get_ai_prediction
+from predict_ai import predict_ai as get_ai_prediction
 from market_data import get_market_data
 from message_builder import build_message
 from analysis import analyze_market
