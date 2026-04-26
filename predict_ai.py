@@ -129,24 +129,28 @@ def get_ai_prediction(news_summary=""):
     market = get_market_snapshot()
 
     prompt = f"""
-あなたは金融市場の方向性予測モデルです。
-以下のデータを基に、明日の市場方向性を予測してください。
+    あなたは金融市場の方向性予測モデルです。
+    以下のデータを基に、明日の市場方向性を予測してください。
 
-【市場データ】
-TOPIX: {market['topix']}
-VIX: {market['vix']}
-USDJPY: {market['usd_jpy']}
-US10Y: {market['us10y']}
-US2Y: {market['us2y']}
+    【市場データ】
+    TOPIX: {market['topix']}
+    VIX: {market['vix']}
+    USDJPY: {market['usd_jpy']}
+    US10Y: {market['us10y']}
+    US2Y: {market['us2y']}
 
-【ニュース要約】
-{news_summary}
+    【ニュース要約】
+    {news_summary}
 
-出力フォーマット：
-UP_PROB: 0.xx
-DOWN_PROB: 0.xx
-REASON: （簡潔に）
-"""
+    必ず次の形式で「のみ」出力してください：
+
+    UP_PROB: 0.xx
+    DOWN_PROB: 0.xx
+    REASON: xxx
+
+    上記以外の文章は一切書かないこと。
+    """
+
 
     ai_text = call_gemini_api(prompt)
     print("Gemini生レスポンス:", ai_text)  # ★ 追加
