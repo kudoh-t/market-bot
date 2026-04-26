@@ -59,7 +59,8 @@ def call_gemini_api(prompt):
     if not api_key:
         raise ValueError("環境変数 GEMINI_API_KEY が設定されていません")
 
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+    #url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
 
     headers = {"Content-Type": "application/json"}
     payload = {
