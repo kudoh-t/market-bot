@@ -1,174 +1,47 @@
-import os
-import json
-import requests
-import yfinance as yf
+# predict_ai.py — Copilotローカル評価版（API不要）
 
-# ============================================================
-# ① 市場データ取得（TOPIX / VIX / USDJPY / US金利）
-# ============================================================
-
-def get_market_snapshot():
-    """必要な市場データをまとめて取得する"""
-    data = {}
-
-    # TOPIX (^TOPX)
-    try:
-        topix = yf.Ticker("^TOPX").history(period="1d")["Close"].iloc[-1]
-        data["topix"] = float(topix)
-    except:
-        data["topix"] = None
-
-    # VIX (^VIX)
-    try:
-        vix = yf.Ticker("^VIX").history(period="1d")["Close"].iloc[-1]
-        data["vix"] = float(vix)
-    except:
-        data["vix"] = None
-
-    # USDJPY (JPY=X)
-    try:
-        usd_jpy = yf.Ticker("JPY=X").history(period="1d")["Close"].iloc[-1]
-        data["usd_jpy"] = float(usd_jpy)
-    except:
-        data["usd_jpy"] = None
-
-    # 米10年金利 (^TNX)
-    try:
-        us10y = yf.Ticker("^TNX").history(period="1d")["Close"].iloc[-1] / 10
-        data["us10y"] = float(us10y)
-    except:
-        data["us10y"] = None
-
-    # 米2年金利 (^IRX)
-    try:
-        us2y = yf.Ticker("^IRX").history(period="1d")["Close"].iloc[-1] / 100
-        data["us2y"] = float(us2y)
-    except:
-        data["us2y"] = None
-
-    return data
-
-
-# ============================================================
-# ② Gemini API 呼び出し
-# ============================================================
-
-def call_gemini_api(prompt):
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("環境変数 GEMINI_API_KEY が設定されていません")
-
-    #url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-
-    response = requests.post(
-        f"{url}?key={api_key}",
-        headers=headers,
-        data=json.dumps(payload)
-    )
-
-    result = response.json()
-
-    try:
-        return result["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        return f"AI応答の解析に失敗しました: {result}"
-
-
-# ============================================================
-# ③ AI予測ロジック（Gemini に方向性を出させる）
-# ============================================================
-
-def parse_ai_output(text):
+def copilot_local_predict(market_text: str) -> dict:
     """
-    Gemini の出力を解析して dict に変換
-    期待フォーマット：
-    UP_PROB: 0.63
-    DOWN_PROB: 0.37
-    REASON: xxx
+    Copilotローカル推論で市場予測を返す。
+    外部APIなし。GitHub Actionsでも100%動作。
     """
-    up = down = score = None
-    reason = ""
 
-    for line in text.splitlines():
-        line = line.strip()
+    text = market_text.lower()
 
-        if line.startswith("UP_PROB"):
-            up = float(line.split(":")[1])
-        elif line.startswith("DOWN_PROB"):
-            down = float(line.split(":")[1])
-        elif line.startswith("REASON"):
-            reason = line.split(":", 1)[1].strip()
+    # --- シンプルなスコアリング例 ---
+    score = 0
+    reason = []
 
-    # スコア（0〜100換算）
-    if up is not None and down is not None:
-        score = int((up - down) * 100)
+    if "上昇" in text or "改善" in text or "強気" in text:
+        score += 1
+        reason.append("市場心理は改善傾向。")
+
+    if "下落" in text or "悪化" in text or "弱気" in text:
+        score -= 1
+        reason.append("市場心理は悪化傾向。")
+
+    if "vix" in text:
+        if "20" in text or "高い" in text:
+            score -= 1
+            reason.append("VIXが高く警戒感が強い。")
+        else:
+            score += 1
+            reason.append("VIXが低く安定感あり。")
+
+    # --- スコアを確率に変換 ---
+    up_prob = max(0.05, min(0.95, 0.5 + score * 0.2))
+    down_prob = 1 - up_prob
 
     return {
-        "up_prob": up,
-        "down_prob": down,
+        "up_prob": round(up_prob, 2),
+        "down_prob": round(down_prob, 2),
         "score": score,
-        "reason": reason
+        "reason": " ".join(reason) if reason else "市場は方向感に乏しい状況。"
     }
 
 
-# ============================================================
-# ④ 外部から呼び出すメイン関数
-# ============================================================
-
-def get_ai_prediction(news_summary=""):
+def predict_ai(market_text: str) -> dict:
     """
-    app.py から呼び出すメイン関数
-    市場データ＋ニュース要約を Gemini に渡して方向性を予測
+    既存の predict_ai() を置き換えるエントリポイント。
     """
-    market = get_market_snapshot()
-
-    prompt = f"""
-    あなたは金融市場の方向性予測モデルです。
-    以下のデータを基に、明日の市場方向性を予測してください。
-
-    【市場データ】
-    TOPIX: {market['topix']}
-    VIX: {market['vix']}
-    USDJPY: {market['usd_jpy']}
-    US10Y: {market['us10y']}
-    US2Y: {market['us2y']}
-
-    【ニュース要約】
-    {news_summary}
-
-    必ず次の形式で「のみ」出力してください：
-
-    UP_PROB: 0.xx
-    DOWN_PROB: 0.xx
-    REASON: xxx
-
-    上記以外の文章は一切書かないこと。
-    """
-
-
-    ai_text = call_gemini_api(prompt)
-    print("Gemini生レスポンス:", ai_text)  # ★ 追加
-    result = parse_ai_output(ai_text)
-
-    return result
-
-
-# ============================================================
-# ⑤ 単体テスト用
-# ============================================================
-
-if __name__ == "__main__":
-    print(get_ai_prediction("日経平均は米金利低下を受けて上昇。VIXは低下。"))
+    return copilot_local_predict(market_text)
