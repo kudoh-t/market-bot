@@ -10,7 +10,7 @@ def get_vix_analysis(vix_p, vxf_p):
 
     # --- 本当に両方のデータが無い場合のみ「取得不可」 ---
     if vix_p is None and vxf_p is None:
-        return "VIXデータが取得できませんでしたが、ボラティリティは落ち着いた水準と推定されます。"
+        return "VIXは取得できませんでしたが、ボラティリティは落ち着いた水準と推定されます。"
 
     # --- VIX3M（先物代替）が無い場合 ---
     if vxf_p is None:
