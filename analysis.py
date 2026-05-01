@@ -173,22 +173,26 @@ def calc_reversal_score(market, war_score, peace_score):
 # ============================
 
 def build_copilot_prompt(market, reversal_score, war_score, peace_score):
-    """
-    Copilot View 用のローカルAI入力用プロンプト（dict）を生成。
-    app.py → copilot_local_view(prompt) にそのまま渡す前提。
-    """
+
+    # tuple → 数値に変換（value, change のどちらでも value を使う）
+    def extract_value(x):
+        if isinstance(x, tuple):
+            return x[0]
+        return x
+
     return {
-        "fgi": market.get("fgi"),
-        "vix": market.get("vix"),
-        "us10y": market.get("us10y"),
-        "nikkei_change": market.get("nikkei_change"),
-        "sp500_change": market.get("sp500_change"),
-        "wti_change": market.get("wti_change"),
+        "fgi": extract_value(market.get("fgi")),
+        "vix": extract_value(market.get("vix")),
+        "us10y": extract_value(market.get("us10y")),
+        "nikkei_change": extract_value(market.get("nikkei_change")),
+        "sp500_change": extract_value(market.get("sp500_change")),
+        "wti_change": extract_value(market.get("wti_change")),
         "reversal_score": reversal_score,
         "war_score": war_score,
         "peace_score": peace_score,
-        "usd_jpy_change": market.get("usd_jpy_change"),
+        "usd_jpy_change": extract_value(market.get("usd_jpy_change")),
     }
+
 
 
 # ============================
