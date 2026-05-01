@@ -134,7 +134,6 @@ def calc_reversal_score(market, war_score, peace_score):
     """
     score = 0
 
-    # --- 既存の市場データ評価（FGI, VIX, 指数, スプレッド等） ---
     # FGI (逆張り指標)
     fgi = market.get("fgi")
     if fgi is not None:
@@ -150,29 +149,46 @@ def calc_reversal_score(market, war_score, peace_score):
     if spread is not None and spread < 0:
         score += min(20, abs(spread) * 10)
 
-    # --- ニュースによる調整（ここを修正） ---
-    # news_engine.py 側で既に war_score(抑制済み) と peace_score(ブースト済み) 
-    # が計算されているため、ここではシンプルに合算します。
-    
-    # 地政学の悪材料を、金融政策や産業の好材料がどれだけカバーしているか
-    news_impact = peace_score - war_score
-    
-    # ニュースインパクトの反映（最大 ±25点 程度の範囲に収まるよう調整）
-    score += max(-25, min(25, news_impact / 10)) 
+    # ニュースインパクト
+    news_impact = (peace_score or 0) - (war_score or 0)
+    score += max(-25, min(25, news_impact / 10))
 
-    # 原油急騰は別途ペナルティ（インフレ・地政学懸念の裏付け）
+    # 原油急騰ペナルティ
     wti_c = market.get("wti_change")
     if wti_c is not None and wti_c > 2:
         score -= min(10, wti_c)
-# --- 需給・温度感の追加（追記イメージ） ---
+
+    # 銅 vs 金
     copper = market.get("copper_change")
     gold = market.get("gold_change")
-    
-    # 銅(景気)が金(不安)をアウトパフォームしていれば、実体経済は強いと判断
     if copper is not None and gold is not None:
         if (copper - gold) > 0.5:
-            score += 10  # リスクオン加点
+            score += 10
+
     return max(0, min(100, int(score)))
+
+
+# ============================
+# Copilot View 用プロンプト生成
+# ============================
+
+def build_copilot_prompt(market, reversal_score, war_score, peace_score):
+    """
+    Copilot View 用のローカルAI入力用プロンプト（dict）を生成。
+    app.py → copilot_local_view(prompt) にそのまま渡す前提。
+    """
+    return {
+        "fgi": market.get("fgi"),
+        "vix": market.get("vix"),
+        "us10y": market.get("us10y"),
+        "nikkei_change": market.get("nikkei_change"),
+        "sp500_change": market.get("sp500_change"),
+        "wti_change": market.get("wti_change"),
+        "reversal_score": reversal_score,
+        "war_score": war_score,
+        "peace_score": peace_score,
+        "usd_jpy_change": market.get("usd_jpy_change"),
+    }
 
 
 # ============================
@@ -193,7 +209,7 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
     spread_comment = get_yield_spread_comment(market.get("yield_spread"))
     rate_total_comment = combine_rate_comments(rate10_comment, rate2_comment, spread_comment)
 
-    # コモディティ（銀・天然ガス対応）
+    # コモディティ
     commodity_comment = get_commodities_analysis(
         market.get("gold_change"),
         market.get("wti_change"),
@@ -215,6 +231,9 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
     # 総合反転スコア
     reversal_score = calc_reversal_score(market, war_score, peace_score)
 
+    # Copilot View 用プロンプト
+    copilot_prompt = build_copilot_prompt(market, reversal_score, war_score, peace_score)
+
     return {
         "vix_comment": vix_comment,
         "rate10_comment": rate10_comment,
@@ -229,5 +248,6 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
             "war_score": war_score,
             "peace_score": peace_score
         },
-        "classified_news": classified_news
+        "classified_news": classified_news,
+        "copilot_prompt": copilot_prompt,  # ★ app.py がここを読む
     }

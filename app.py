@@ -6,6 +6,7 @@ from predict_ai import predict_ai as get_ai_prediction
 from market_data import get_market_data
 from message_builder import build_message
 from analysis import analyze_market
+from copilot_local_view import copilot_local_view   # ★ ローカルAI文章生成
 
 
 # ============================
@@ -56,7 +57,7 @@ def build_news_summary(data):
         for n in categories.get(cat, [])[:2]:
             lines.append(n.get("title", ""))
 
-    return " / ".join(lines)[:800]  # プロンプトが長くなりすぎないように制限
+    return " / ".join(lines)[:800]
 
 
 # ============================
@@ -69,7 +70,7 @@ def main():
     # ① 市場データ取得（ニュース分類含む）
     data = get_market_data()
 
-    # ② ニュース・スコア分析
+    # ② ニュース・スコア分析（analysis.py）
     analysis = analyze_market(
         data,
         data["classified_news"],
@@ -80,7 +81,7 @@ def main():
     # ③ 分析結果を data に統合
     data.update(analysis)
 
-    # ③.5 AI予測（方向性スコア）を追加
+    # ③.5 AI予測（方向性スコア）
     try:
         news_summary = build_news_summary(data)
         ai = get_ai_prediction(news_summary)
@@ -94,13 +95,16 @@ def main():
         }
     data["ai_prediction"] = ai
 
-    # ④ Copilot View（analysis.py が生成した文章）をそのまま利用
-    prompt_from_logic = data.get("copilot_view")
-    if prompt_from_logic:
-        print("Copilot View を使用します")
+    # ④ Copilot View（ローカルAIで生成）
+    copilot_prompt = data.get("copilot_prompt")   # ★ analysis.py が生成した素材
+
+    if copilot_prompt:
+        data["copilot_view"] = copilot_local_view(copilot_prompt)
+        print("Copilot View 生成完了")
     else:
-        print("AIへの依頼文が見つかりません。")
-    
+        data["copilot_view"] = "Copilot View の素材が不足しています。"
+        print("Copilot Prompt が見つかりません。")
+
     # ⑤ メッセージ生成
     report = build_message(data)
 
