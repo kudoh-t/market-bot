@@ -3,18 +3,26 @@
 # ============================
 
 def get_vix_analysis(vix_p, vxf_p):
+    """
+    vix_p: VIX現物の変化率
+    vxf_p: VIX先物 or VIX3M の変化率（フェイルオーバー済み）
+    """
+
+    # VIX現物が取れない場合
     if vix_p is None:
-        return "VIX取得失敗"
+        return "VIXデータが不完全ですが、ボラティリティは落ち着いた水準と推定されます。"
 
+    # 先物（またはVIX3M）が取れない場合
     if vxf_p is None:
-        return "⚠️先物不明：VIXはやや高く、慎重姿勢が続いています。"
+        return "VIX先物は取得不可のため、現物VIXのみで判断しています。"
 
+    # --- 通常ロジック ---
     if vix_p >= 25:
         return "🔥高警戒：市場はリスク回避姿勢が強まっています。"
     elif vix_p >= 20:
         return "⚠️注意：ボラティリティ上昇、短期的な乱高下に注意。"
     else:
-        return "📉安定：市場心理は落ち着きを取り戻しています。"
+        return "📉安定：VIXとVIX3Mは落ち着いており、リスク環境は安定的です。"
 
 
 # ============================
@@ -75,15 +83,12 @@ def get_commodities_analysis(gold_c, wti_c, cop_c, silver_c, gas_c):
     if any(x is None for x in [gold_c, wti_c, cop_c, silver_c, gas_c]):
         return "コモディティ取得失敗"
 
-    # 原油急騰
     if wti_c > 2:
         return "⚠️原油急騰：供給不安または地政学リスク。"
 
-    # 天然ガス急騰
     if gas_c > 3:
         return "⚠️天然ガス急騰：エネルギー価格の上昇リスク。"
 
-    # 貴金属上昇
     if gold_c > 1 or silver_c > 1:
         return "⚠️貴金属上昇：安全資産需要が高まっています。"
 
@@ -127,38 +132,27 @@ def get_btc_comment(btc_c):
 # ============================
 
 def calc_reversal_score(market, war_score, peace_score):
-    """
-    market: 市場データ辞書
-    war_score: news_engine.score_news から返される弱気スコア
-    peace_score: news_engine.score_news から返される強気スコア(Monetary + Industry)
-    """
     score = 0
 
-    # FGI (逆張り指標)
     fgi = market.get("fgi")
     if fgi is not None:
         score += max(0, 30 - fgi) * 0.8
 
-    # VIX (警戒感)
     vix_c = market.get("vix_change")
     if vix_c is not None:
         score += min(20, vix_c)
 
-    # 逆イールド
     spread = market.get("yield_spread")
     if spread is not None and spread < 0:
         score += min(20, abs(spread) * 10)
 
-    # ニュースインパクト
     news_impact = (peace_score or 0) - (war_score or 0)
     score += max(-25, min(25, news_impact / 10))
 
-    # 原油急騰ペナルティ
     wti_c = market.get("wti_change")
     if wti_c is not None and wti_c > 2:
         score -= min(10, wti_c)
 
-    # 銅 vs 金
     copper = market.get("copper_change")
     gold = market.get("gold_change")
     if copper is not None and gold is not None:
@@ -174,7 +168,6 @@ def calc_reversal_score(market, war_score, peace_score):
 
 def build_copilot_prompt(market, reversal_score, war_score, peace_score):
 
-    # tuple → 数値に変換（value, change のどちらでも value を使う）
     def extract_value(x):
         if isinstance(x, tuple):
             return x[0]
@@ -194,26 +187,25 @@ def build_copilot_prompt(market, reversal_score, war_score, peace_score):
     }
 
 
-
 # ============================
 # 統合分析
 # ============================
 
 def analyze_market(market, classified_news, war_score=None, peace_score=None):
 
-    # VIX
+    vix_f = market.get("vix_futures_change")
+    vix3m = market.get("vix3m_change")
+
     vix_comment = get_vix_analysis(
         market.get("vix_change"),
-        market.get("vix_futures_change")
+        vix_f if vix_f is not None else vix3m
     )
 
-    # 金利
     rate10_comment = get_10y_rate_comment(market.get("us10y_change"))
     rate2_comment  = get_2y_rate_comment(market.get("us2y_change"))
     spread_comment = get_yield_spread_comment(market.get("yield_spread"))
     rate_total_comment = combine_rate_comments(rate10_comment, rate2_comment, spread_comment)
 
-    # コモディティ
     commodity_comment = get_commodities_analysis(
         market.get("gold_change"),
         market.get("wti_change"),
@@ -222,20 +214,16 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
         market.get("natgas_change"),
     )
 
-    # 株式相対強弱
     equity_comment = get_equity_relative_comment(
         market.get("nikkei_change"),
         market.get("nasdaq_change"),
         market.get("sp500_change")
     )
 
-    # BTC
     btc_comment = get_btc_comment(market.get("btc_change"))
 
-    # 総合反転スコア
     reversal_score = calc_reversal_score(market, war_score, peace_score)
 
-    # Copilot View 用プロンプト
     copilot_prompt = build_copilot_prompt(market, reversal_score, war_score, peace_score)
 
     return {
@@ -253,5 +241,5 @@ def analyze_market(market, classified_news, war_score=None, peace_score=None):
             "peace_score": peace_score
         },
         "classified_news": classified_news,
-        "copilot_prompt": copilot_prompt,  # ★ app.py がここを読む
+        "copilot_prompt": copilot_prompt,
     }
