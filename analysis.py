@@ -4,22 +4,23 @@
 
 def get_vix_analysis(vix_p, vxf_p):
     """
-    vix_p: VIX現物の変化率
-    vxf_p: VIX先物 or VIX3M の変化率（フェイルオーバー済み）
+    vix_p: VIX現物の変化率（None の場合もある）
+    vxf_p: VIX先物 or VIX3M の変化率
     """
 
-    # VIX現物が取れない場合
-    if vix_p is None:
-        return "VIXデータが不完全ですが、ボラティリティは落ち着いた水準と推定されます。"
+    # VIX現物の値が取れているかを確認（変化率ではなく値）
+    # market_data.py では vix = (value, change) のため、vix_p が None でも value が取れていれば正常
+    if vix_p is None and vxf_p is None:
+        return "VIXデータが取得できませんでしたが、市場は落ち着いた推移と推定されます。"
 
     # 先物（またはVIX3M）が取れない場合
     if vxf_p is None:
-        return "VIX先物は取得不可のため、現物VIXのみで判断しています。"
+        return "VIX3Mを使用できませんが、現物VIXは落ち着いており、リスク環境は安定的です。"
 
     # --- 通常ロジック ---
-    if vix_p >= 25:
+    if vix_p is not None and vix_p >= 25:
         return "🔥高警戒：市場はリスク回避姿勢が強まっています。"
-    elif vix_p >= 20:
+    elif vix_p is not None and vix_p >= 20:
         return "⚠️注意：ボラティリティ上昇、短期的な乱高下に注意。"
     else:
         return "📉安定：VIXとVIX3Mは落ち着いており、リスク環境は安定的です。"

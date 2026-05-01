@@ -1,53 +1,39 @@
-# copilot_local_view.py
-# 完全ローカルAI文章生成（外部APIなし・GitHub Actionsで100%動作）
+def copilot_local_view(p):
 
-def copilot_local_view(prompt: dict) -> str:
-    """
-    Copilot View をローカルロジックで生成する。
-    文体：落ち着いた機関投資家風
-    長さ：150文字前後
-    """
+    fgi = p.get("fgi")
+    vix = p.get("vix")
+    wti = p.get("wti_change")
+    rev = p.get("reversal_score")
+    war = p.get("war_score")
+    peace = p.get("peace_score")
+    usd = p.get("usd_jpy_change")
 
-    fgi = prompt.get("fgi")
-    vix = prompt.get("vix")
-    us10y = prompt.get("us10y")
-    nikkei = prompt.get("nikkei_change")
-    sp = prompt.get("sp500_change")
-    wti = prompt.get("wti_change")
-    rev = prompt.get("reversal_score")
-    war = prompt.get("war_score")
-    peace = prompt.get("peace_score")
-
-    # --- 1. 今日の核心（歪み・矛盾） ---
-    if fgi is not None and vix is not None:
-        if fgi > 60 and vix < 18:
-            core = "投資家心理の強気と低VIXが示す安定感に対し、実需の追随が鈍い点が今日の焦点。"
-        elif fgi < 40 and vix < 18:
-            core = "弱気心理と低VIXの組み合わせは、リスク認識の遅れを示唆する。"
-        else:
-            core = "心理指標とボラティリティの整合性がやや崩れ、短期の方向感は不安定。"
+    # --- 今日の核心（現在の歪み） ---
+    if fgi > 60 and vix < 18:
+        core = "強気心理と低VIXが示す安定感に対し、実需の弱さが市場の歪み。"
+    elif rev < 30:
+        core = "反転スコアの弱さが示す通り、上値追いの勢いは限定的。"
     else:
-        core = "市場心理とボラティリティの関係に小さな歪みが見られる。"
+        core = "市場は方向感に乏しく、材料待ちの展開。"
 
-    # --- 2. 地政学リスク判定 ---
-    if wti is not None and vix is not None:
-        if wti > 2 and vix > 20:
-            geo = "原油高とVIX上昇が並行し、地政学リスクは実害レベル。"
-        elif wti < 0 and vix < 18:
-            geo = "原油安と低VIXから、地政学リスクはノイズ化。"
-        else:
-            geo = "地政学リスクは部分的に価格へ反映される段階。"
+    # --- 未来志向（次に動く可能性の高い変化点） ---
+    if vix < 18 and wti < 0:
+        future = "低VIXと原油安は、金利低下とリスク許容度回復の前兆。"
+    elif fgi > 60:
+        future = "過熱したFGIは、短期的な反転リスクを内包。"
+    elif usd < -1:
+        future = "急速な円高は、政策対応や資金フロー転換のシグナル。"
+    elif peace > war:
+        future = "地政学リスクは後退方向で、先行きの不確実性は低下。"
     else:
-        geo = "地政学リスクの市場反映は限定的。"
+        future = "地政学リスクが上値を抑制し、先行きは不透明。"
 
-    # --- 3. 今日避けるべき行動 ---
-    if prompt.get("usd_jpy_change") and prompt["usd_jpy_change"] < -1:
-        avoid = "円高局面での日本株の高値追いは避けたい。"
-    elif vix is not None and vix < 15:
-        avoid = "低VIXを過信したレバレッジ拡大は控えるべき。"
+    # --- 行動指針（今日の投資判断） ---
+    if rev < 30:
+        action = "逆張りは非効率。実需回復を確認するまでは慎重姿勢が妥当。"
     else:
-        avoid = "材料不足下での逆張りはリスクが大きい。"
+        action = "短期は押し目待ち。過度なポジション拡大は避けたい。"
 
-    # --- 文章統合（150文字前後） ---
-    text = f"{core} {geo} {avoid}"
-    return text[:180]
+    # --- 150文字以内にまとめる ---
+    text = f"{core} {future} {action}"
+    return text[:150]
