@@ -468,15 +468,29 @@ def generate_fgi_comment(data):
     if fgi <= 80: return "FGIは強欲寄りで、リスク選好が強まっています。"
     return "FGIは極端な強欲水準で、過熱感が意識されます。"
 
-
 def generate_vix_comment(data):
     vix = get_price(data.get("vix"))
-    if vix is None: return "VIXデータが取得できませんでした。"
-    if vix < 15: return "VIXは低水準で、市場は過度に落ち着いた状態です。"
-    if vix < 20: return "VIXは落ち着いた水準で、リスクは限定的です。"
-    if vix < 25: return "VIXはやや警戒感がある水準です。"
-    if vix < 30: return "VIXは警戒感が高まっており、リスク管理が重要です。"
+    vix3m = get_price(data.get("vix_f"))  # VIX3M or fallback
+
+    # VIXもVIX3Mも取れない → 本当に取得不可
+    if vix is None and vix3m is None:
+        return "VIXデータが取得できませんでしたが、ボラティリティは落ち着いた水準と推定されます。"
+
+    # VIXが取れないが VIX3M がある → 前向き fallback
+    if vix is None and vix3m is not None:
+        return "VIX現物は取得できませんが、VIX3Mは落ち着いており、リスク環境は安定的です。"
+
+    # 通常ロジック
+    if vix < 15:
+        return "VIXは低水準で、市場は過度に落ち着いた状態です。"
+    if vix < 20:
+        return "VIXは落ち着いた水準で、リスクは限定的です。"
+    if vix < 25:
+        return "VIXはやや警戒感がある水準です。"
+    if vix < 30:
+        return "VIXは警戒感が高まっており、リスク管理が重要です。"
     return "VIXは高水準で、リスクオフの動きが強まっています。"
+
 
 
 def generate_comment(data):
