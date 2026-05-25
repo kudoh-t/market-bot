@@ -3,7 +3,6 @@
 # ============================================
 
 def fmt_number(v):
-    """数値フォーマットを安全に処理"""
     if v is None:
         return "N/A"
     try:
@@ -19,7 +18,6 @@ def fmt_number(v):
 
 
 def fmt_change(diff):
-    """変化率フォーマットを安全に処理"""
     if diff is None:
         return "N/A"
     try:
@@ -30,10 +28,8 @@ def fmt_change(diff):
 
 
 def safe_fmt(value):
-    """(値, 変化率) タプルにも単体値にも対応した安全フォーマット"""
     if value is None:
         return "N/A"
-
     try:
         if isinstance(value, tuple) and len(value) == 2:
             v, diff = value
@@ -43,13 +39,8 @@ def safe_fmt(value):
         return "N/A"
 
 
-# ============================================
-# タイトル生成
-# ============================================
-
 def generate_title(data):
     date = data.get("date", "0000.00.00")
-
     vix = data.get("vix")
     vix_price = vix[0] if isinstance(vix, tuple) else None
 
@@ -68,10 +59,6 @@ def generate_title(data):
 
     return f"【{date} {icon}{mode}：総合反転スコア】"
 
-
-# ============================================
-# ニュースセクション
-# ============================================
 
 def sort_news_by_category(classified):
     try:
@@ -119,10 +106,6 @@ def build_news_section(data):
     return "\n".join(lines).strip()
 
 
-# ============================================
-# AI予測セクション
-# ============================================
-
 def build_ai_section(ai):
     if not ai:
         return "▼ 11. AI予測\n ・AI予測データなし\n"
@@ -144,14 +127,9 @@ def build_ai_section(ai):
     )
 
 
-# ============================================
-# メインメッセージ生成
-# ============================================
-
 def build_message(d):
     title = generate_title(d)
 
-    # FGI
     section_fgi = [
         title,
         "",
@@ -161,7 +139,6 @@ def build_message(d):
         f" ・コメント: {d.get('fgi_comment')}\n",
     ]
 
-    # 日本市場
     nk_source = d.get('nikkei_source', '')
     nk_label = "日経平均(先物)" if any(s in nk_source for s in ["CME", "OSE"]) else "日経平均"
 
@@ -174,7 +151,6 @@ def build_message(d):
         f" ・マザーズ: {safe_fmt(d.get('mothers'))}",
     ]
 
-    # 米国市場
     section_us = [
         "▼ 2. 米国市場",
         f" ・NYダウ: {safe_fmt(d.get('dow'))}",
@@ -183,7 +159,6 @@ def build_message(d):
         f" ・コメント: {d.get('us_comment')}\n",
     ]
 
-    # VIX
     section_vix = [
         "▼ 3. リスク指標 (VIX)",
         f" ・VIX現物: {safe_fmt(d.get('vix'))}",
@@ -192,7 +167,6 @@ def build_message(d):
         f" ・コメント: {d.get('vix_comment')}\n",
     ]
 
-    # 為替
     section_fx = [
         "▼ 4. 為替",
         f" ・USD/JPY: {safe_fmt(d.get('usd_jpy'))}",
@@ -201,7 +175,6 @@ def build_message(d):
         f" ・コメント: {d.get('fx_comment')}\n",
     ]
 
-    # 商品
     section_commodities = [
         "▼ 5. 商品",
         f" ・原油(WTI): {safe_fmt(d.get('wti'))}",
@@ -212,7 +185,6 @@ def build_message(d):
         f" ・コメント: {d.get('commodities_comment')}\n",
     ]
 
-    # 金利
     section_rates = [
         "▼ 6. 金利",
         f" ・米10年債: {safe_fmt(d.get('us10y'))}",
@@ -221,7 +193,6 @@ def build_message(d):
         f" ・コメント: {d.get('rates_comment')}\n",
     ]
 
-    # 仮想通貨
     section_crypto = [
         "▼ 7. 仮想通貨",
         f" ・BTC: {safe_fmt(d.get('btc'))}",
@@ -229,35 +200,30 @@ def build_message(d):
         f" ・コメント: {d.get('crypto_comment')}\n",
     ]
 
-    # コメント
     section_comment = [
         "▼ 8. コメント",
         d.get("comment", "N/A"),
         "\n",
     ]
 
-    # ニュース
     section_news = [
         "▼ 9. ニュース",
         build_news_section(d),
         "\n",
     ]
 
-    # Copilot View
     section_copilot = [
         "▼ 10. Copilot View",
         d.get("copilot_view", "N/A"),
         "\n",
     ]
 
-    # AI予測
     ai = d.get("ai_prediction")
     section_ai = [
         build_ai_section(ai),
         "\n",
     ]
 
-    # スコア
     section_score = [
         "▼ 12. 総合スコア",
         f" ・スコア: {d.get('score', 'N/A')} / 100",
