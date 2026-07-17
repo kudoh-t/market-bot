@@ -2,7 +2,7 @@ name: Daily Market Bot
 
 on:
   schedule:
-    - cron: "0 22 * * *"   # 時間はそのまま
+    - cron: "0 21 * * *"   # 時間はそのまま
   workflow_dispatch:
 
 jobs:
