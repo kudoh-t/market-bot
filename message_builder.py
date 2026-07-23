@@ -191,6 +191,12 @@ def build_message(d):
         f" ・米2年債: {safe_fmt(d.get('us2y'))}",
         f" ・イールド差: {fmt_number(d.get('yield_spread'))}",
         f" ・コメント: {d.get('rates_comment')}\n",
+        "",
+        "▼ 6-2. 日本金利",
+        f" ・日本10年債: {safe_fmt(d.get('jp10y'))}",
+        f" ・日本2年債: {safe_fmt(d.get('jp2y'))}",
+        f" ・イールド差(10Y-2Y): {fmt_number(d.get('jp_yield_spread'))}",
+        f" ・コメント: {d.get('jp_rates_comment')}\n",
     ]
 
     section_crypto = [
@@ -212,11 +218,7 @@ def build_message(d):
         "\n",
     ]
 
-    section_copilot = [
-        "▼ 10. Copilot View",
-        d.get("copilot_view", "N/A"),
-        "\n",
-    ]
+    # Copilot View は別ファイル化するため削除済み
 
     ai = d.get("ai_prediction")
     section_ai = [
@@ -242,9 +244,17 @@ def build_message(d):
         + section_crypto
         + section_comment
         + section_news
-        + section_copilot
         + section_ai
         + section_score
     )
 
     return message
+
+
+# ============================================
+# 出力部（単体実行可能）
+# ============================================
+if __name__ == "__main__":
+    from market_data import get_market_data
+    d = get_market_data()
+    print(build_message(d))
