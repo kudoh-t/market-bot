@@ -125,15 +125,22 @@ def get_from_investing(url):
     try:
         res = requests.get(url, headers=headers, timeout=10).text
         import re
-        m = re.search(r'lastPrice":"([\d\.]+)"', res)
-        p = re.search(r'priceChangePercent":"([\-\d\.]+)"', res)
+
+        # last price
+        m = re.search(r'\"instrument-price-last\">([\d\.]+)<', res)
+        # change percent
+        p = re.search(r'\"instrument-price-change-percent\">([\-\d\.]+)<', res)
+
         if not m or not p:
             return None, None
+
         last = float(m.group(1))
         change = float(p.group(1))
         return last, change
+
     except Exception:
         return None, None
+
 
 # ============================================
 # 多重化ラッパー
