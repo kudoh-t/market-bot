@@ -331,8 +331,8 @@ def get_eth():
 # ★ 日本金利（新規追加）
 # ============================================
 def get_jp_rates():
-    jp10y = get_price_smart("^JP10Y", tv_symbol="TVC:JP10Y")
-    jp2y  = get_price_smart("^JP2Y",  tv_symbol="TVC:JP2Y")
+    jp10y = get_price_smart("^JP10Y", tv_symbol="TVC:JGB10Y")
+    jp2y  = get_price_smart("^JP2Y",  tv_symbol="TVC:JGBY")
     return jp10y, jp2y
 # ============================================
 # スコア・コメント
