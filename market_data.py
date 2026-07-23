@@ -331,9 +331,10 @@ def get_eth():
 # ★ 日本金利（新規追加）
 # ============================================
 def get_jp_rates():
-    jp10y = get_price_smart("^JP10Y", tv_symbol="TVC:JGB10Y")
-    jp2y  = get_price_smart("^JP2Y",  tv_symbol="TVC:JGBY")
+    jp10y = get_from_investing("https://www.investing.com/rates-bonds/japan-10-year-bond-yield")
+    jp2y  = get_from_investing("https://www.investing.com/rates-bonds/japan-2-year-bond-yield")
     return jp10y, jp2y
+
 # ============================================
 # スコア・コメント
 # ============================================
