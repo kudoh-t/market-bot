@@ -21,13 +21,6 @@ headers = {
 def jq_get_token(mail, password):
     url = "https://api.jpx-jquants.com/v1/token/auth_user"
     payload = {"mailaddress": mail, "password": password}
-    res = requests.post(url, json=payload).json()
-    return res["token"]
-
-
-def jq_get_token(mail, password):
-    url = "https://api.jpx-jquants.com/v1/token/auth_user"
-    payload = {"mailaddress": mail, "password": password}
 
     print("=== J-Quants Token Request ===")
     print("MAIL:", repr(mail))
@@ -77,19 +70,17 @@ def jq_get_topix_daily(token):
         print("JQ daily exception:", e)
         return None, None, "J-Quants"
 
-
 # ============================================
 # 汎用ユーティリティ
 # ============================================
 def get_change(t):
     return None if not t or t[1] is None else t[1]
 
-
 def get_price(t):
     return None if not t or t[0] is None else t[0]
 
 # ============================================
-# TradingView（tvcdn）取得（サブ・バックアップ）
+# TradingView（tvcdn）取得
 # ============================================
 def _tv_history(symbol, resolution="1D", count=2):
     try:
@@ -107,17 +98,13 @@ def _tv_history(symbol, resolution="1D", count=2):
     except Exception:
         return None, None
 
-
 def get_from_tradingview_symbol(symbol):
     return _tv_history(symbol)
 
 # ============================================
-# Yahoo Finance 汎用取得（メイン）
+# Yahoo Finance 汎用取得
 # ============================================
 def get_yf_data(ticker):
-    """
-    yfinance を使用してデータを取得。downloadより安定した history を使用。
-    """
     try:
         t = yf.Ticker(ticker)
         df = t.history(period="5d", interval="1d")
@@ -149,31 +136,23 @@ def get_from_investing(url):
         return None, None
 
 # ============================================
-# 多重化ラッパー：Yahoo(メイン) → TradingView → Investing
+# 多重化ラッパー
 # ============================================
 def get_price_smart(ticker, tv_symbol=None, investing_url=None):
-    """
-    優先順位を Yahoo Finance → TradingView → Investing にして、
-    どれも値が取れなかった場合は (None, None) を返す。
-    """
-    # 1. Yahoo Finance (メイン)
     yf_data = get_yf_data(ticker)
     if yf_data is not None and yf_data[0] is not None:
         return yf_data
 
-    # 2. TradingView (バックアップ)
     if tv_symbol:
         tv = get_from_tradingview_symbol(tv_symbol)
         if tv is not None and tv[0] is not None:
             return tv
 
-    # 3. Investing.com
     if investing_url:
         inv = get_from_investing(investing_url)
         if inv is not None and inv[0] is not None:
             return inv
 
-    # 全部失敗
     return (None, None)
 
 # ============================================
@@ -207,8 +186,6 @@ def get_vix_futures_yahoo():
         except Exception:
             continue
     return None, None
-
-
 def get_vix_futures_fmp():
     try:
         url = "https://financialmodelingprep.com/api/v3/quote/VX=F?apikey=demo"
@@ -221,12 +198,10 @@ def get_vix_futures_fmp():
     except Exception:
         return None, None
 
-
 def estimate_vix_futures(vix_price, vix_change):
     if vix_price is None or vix_change is None:
         return None, None
     return vix_price, vix_change * 0.8
-
 
 def get_vix_futures_safe(vix_price, vix_change):
     vxf = get_vix_futures_yahoo()
@@ -239,32 +214,23 @@ def get_vix_futures_safe(vix_price, vix_change):
 
     return estimate_vix_futures(vix_price, vix_change), True
 
-
 def get_vix_futures_super_safe(vix_price, vix_change):
-    """
-    VIX先物 → VIX3M → VIX1M → VVIX → 既存多重化 の順で取得
-    """
-    # ① VIX先物（VX=F）
     vxf = get_vix_futures_yahoo()
     if vxf[0] is not None:
         return vxf, "VIX先物(VX=F)"
 
-    # ② VIX 3M
     v3m = get_price_smart("^VIX3M", tv_symbol="TVC:VIX3M")
     if v3m[0] is not None:
         return v3m, "VIX3M"
 
-    # ③ VIX 1M
     v1m = get_price_smart("^VIX1M", tv_symbol="TVC:VIX1M")
     if v1m[0] is not None:
         return v1m, "VIX1M"
 
-    # ④ VVIX
     vvix = get_price_smart("^VVIX", tv_symbol="TVC:VVIX")
     if vvix[0] is not None:
         return vvix, "VVIX"
 
-    # ⑤ 最後に既存の多重化
     vxf2, est = get_vix_futures_safe(vix_price, vix_change)
     if vxf2[0] is not None:
         return vxf2, "推定値" if est else "既存多重化"
@@ -272,11 +238,32 @@ def get_vix_futures_super_safe(vix_price, vix_change):
     return (None, None), "取得失敗"
 
 # ============================================
-# 各セクション取得
+# 日本市場
 # ============================================
+def get_nikkei_futures():
+    targets = [
+        ("NK=F", "Yahoo:NK=F(CME)"),
+        ("NIY=F", "Yahoo:NIY=F(CME)"),
+        ("OSE:NK2251!", "TV:NK2251!(OSE)")
+    ]
+
+    for symbol, source_name in targets:
+        try:
+            if "OSE:" in symbol:
+                val, ch = get_from_tradingview_symbol(symbol)
+            else:
+                val, ch = get_yf_data(symbol)
+
+            if val is not None and val > 0:
+                return val, ch, source_name
+        except Exception:
+            continue
+
+    nk_spot = get_price_smart("^N225", tv_symbol="TVC:N225")
+    return (nk_spot[0], nk_spot[1], "⚠Spot(Fallback)")
+
 def get_topix_tv():
     return get_from_tradingview_symbol("TVC:TOPX")
-
 
 def get_topix_tv_multi():
     symbols = [
@@ -300,46 +287,6 @@ def get_topix_tv_multi():
 
     return None, None, None
 
-# ============================================
-# 日本市場：先物優先の取得ロジック（追加・修正）
-# ============================================
-# --- 修正後の get_japan_indices 周辺 ---
-
-def get_nikkei_futures():
-    """
-    日経225先物を取得。朝7:00の通知で最新の市場心理を反映させるため。
-    現物に逃げないよう、CMEとOSEのチェックを厳格化します。
-    """
-    # 試行するシンボルのリスト (CME先物, CME(別のコード), 大阪先物)
-    targets = [
-        ("NK=F", "Yahoo:NK=F(CME)"),
-        ("NIY=F", "Yahoo:NIY=F(CME)"),
-        ("OSE:NK2251!", "TV:NK2251!(OSE)")
-    ]
-
-    for symbol, source_name in targets:
-        try:
-            if "OSE:" in symbol:
-                # TradingView経由
-                val, ch = get_from_tradingview_symbol(symbol)
-            else:
-                # Yahoo Finance経由
-                val, ch = get_yf_data(symbol)
-
-            # 【重要】値が取得できており、かつ0ではないことを確認
-            # 朝7:00に現物に逃げてしまう原因は、ここでの判定が甘いためです
-            if val is not None and val > 0:
-                # 取得できた値が「現物」と同じ値になっていないか念のためチェック
-                # (Yahooが昨日の現物値を返してくるケースへの対策)
-                return val, ch, source_name
-        except Exception:
-            continue
-
-    # --- 全滅した場合のみ現物を取得 ---
-    # ここに来てしまった場合は、ソース名に「!!」を付けて警告します
-    nk_spot = get_price_smart("^N225", tv_symbol="TVC:N225")
-    return (nk_spot[0], nk_spot[1], "⚠Spot(Fallback)")
-
 def get_japan_indices():
     nk_val, nk_ch, nk_src = get_nikkei_futures()
     nikkei = (nk_val, nk_ch, nk_src)
@@ -356,25 +303,39 @@ def get_japan_indices():
     mothers = get_price_smart("2516.T", tv_symbol="INDEX:JMOTHERS")
     return nikkei, (topix_data[0], topix_data[1], topix_source), mothers
 
+# ============================================
+# 米国市場
+# ============================================
 def get_us_indices():
     dow = get_price_smart("^DJI", tv_symbol="TVC:DJI")
     sp500 = get_price_smart("^GSPC", tv_symbol="TVC:SPX")
     nasdaq = get_price_smart("^IXIC", tv_symbol="TVC:IXIC")
     return dow, sp500, nasdaq
 
-
+# ============================================
+# 為替
+# ============================================
 def get_fx():
     usd_jpy = get_price_smart("JPY=X", tv_symbol="FX:USDJPY")
     eur_jpy = get_price_smart("EURJPY=X", tv_symbol="FX:EURJPY")
     cny_jpy = get_price_smart("CNYJPY=X", tv_symbol="FX:CNYJPY")
     return usd_jpy, eur_jpy, cny_jpy
 
-
+# ============================================
+# 仮想通貨
+# ============================================
 def get_eth():
     return get_price_smart("ETH-USD", tv_symbol="CRYPTO:ETHUSD")
 
 # ============================================
-# スコア・コメント・ロジック
+# ★ 日本金利（新規追加）
+# ============================================
+def get_jp_rates():
+    jp10y = get_price_smart("^JP10Y", tv_symbol="TVC:JP10Y")
+    jp2y  = get_price_smart("^JP2Y",  tv_symbol="TVC:JP2Y")
+    return jp10y, jp2y
+# ============================================
+# スコア・コメント
 # ============================================
 def score_fgi(fgi):
     if fgi is None: return 0
@@ -383,7 +344,6 @@ def score_fgi(fgi):
     if fgi <= 60: return 0
     if fgi <= 80: return -5
     return -10
-
 
 def score_vix(vix_tuple):
     v = get_price(vix_tuple)
@@ -394,7 +354,6 @@ def score_vix(vix_tuple):
     if v < 30: return -5
     return -10
 
-
 def score_us_equity(sp500_tuple):
     ch = get_change(sp500_tuple)
     if ch is None: return 0
@@ -403,7 +362,6 @@ def score_us_equity(sp500_tuple):
     if ch > -0.3: return 0
     if ch > -1.0: return -5
     return -10
-
 
 def score_jp_equity(nikkei_tuple):
     ch = get_change(nikkei_tuple)
@@ -414,14 +372,12 @@ def score_jp_equity(nikkei_tuple):
     if ch > -1.0: return -3
     return -5
 
-
 def score_fx(usd_jpy_tuple):
     ch = get_change(usd_jpy_tuple)
     if ch is None: return 0
     if ch >= 0.5: return 5
     if ch <= -0.5: return -5
     return 0
-
 
 def score_wti(wti_tuple):
     ch = get_change(wti_tuple)
@@ -430,7 +386,6 @@ def score_wti(wti_tuple):
     if ch <= -2.0: return 5
     return 0
 
-
 def score_rate(us10y_tuple):
     ch = get_change(us10y_tuple)
     if ch is None: return 0
@@ -438,6 +393,13 @@ def score_rate(us10y_tuple):
     if ch >= 0.05: return -5
     return 0
 
+# ★ 新規追加：日本金利スコア
+def score_jp_rate(jp10y_tuple):
+    ch = get_change(jp10y_tuple)
+    if ch is None: return 0
+    if ch <= -0.05: return 3
+    if ch >= 0.05: return -3
+    return 0
 
 def generate_score(data):
     raw = 0
@@ -448,6 +410,7 @@ def generate_score(data):
     raw += score_fx(data.get("usd_jpy"))
     raw += score_wti(data.get("wti"))
     raw += score_rate(data.get("us10y"))
+    raw += score_jp_rate(data.get("jp10y"))  # ★追加
 
     raw_max = 50
     score = int((raw / raw_max) * 100)
@@ -457,7 +420,6 @@ def generate_score(data):
     elif score >= 20: judge = "やや弱気"
     else: judge = "弱気"
     return score, raw, raw_max, judge
-
 
 def generate_fgi_comment(data):
     fgi = data.get("fgi")
@@ -470,17 +432,14 @@ def generate_fgi_comment(data):
 
 def generate_vix_comment(data):
     vix = get_price(data.get("vix"))
-    vix3m = get_price(data.get("vix_f"))  # VIX3M or fallback
+    vix3m = get_price(data.get("vix_f"))
 
-    # VIXもVIX3Mも取れない → 本当に取得不可
     if vix is None and vix3m is None:
         return "VIXデータが取得できませんでしたが、ボラティリティは落ち着いた水準と推定されます。"
 
-    # VIXが取れないが VIX3M がある → 前向き fallback
     if vix is None and vix3m is not None:
         return "VIX現物は取得できませんが、VIX3Mは落ち着いており、リスク環境は安定的です。"
 
-    # 通常ロジック
     if vix < 15:
         return "VIXは低水準で、市場は過度に落ち着いた状態です。"
     if vix < 20:
@@ -490,8 +449,6 @@ def generate_vix_comment(data):
     if vix < 30:
         return "VIXは警戒感が高まっており、リスク管理が重要です。"
     return "VIXは高水準で、リスクオフの動きが強まっています。"
-
-
 
 def generate_comment(data):
     vix = get_price(data.get("vix"))
@@ -515,14 +472,12 @@ def generate_comment(data):
             parts.append("原油価格が下落しており、インフレ圧力はやや和らいでいます。")
     return " ".join(parts) if parts else "大きな方向感は乏しく、様子見ムードの相場です。"
 
-
 def generate_us_comment(data):
     sp = get_change(data.get("sp500"))
     if sp is None: return "米国市場のデータが取得できませんでした。"
     if sp >= 1.0: return "米国株は堅調で、投資家心理は改善傾向です。"
     if sp <= -1.0: return "米国株は下落しており、リスク回避姿勢が強まっています。"
     return "米国市場は小動きで、方向感に欠ける展開です。"
-
 
 def generate_fx_comment(data):
     usd = get_change(data.get("usd_jpy"))
@@ -531,14 +486,12 @@ def generate_fx_comment(data):
     if usd <= -0.5: return "ドル円は下落しており、円高方向の動きです。"
     return "為替は落ち着いた値動きです。"
 
-
 def generate_commodities_comment(data):
     wti = get_change(data.get("wti"))
     if wti is None: return "商品市場のデータが取得できませんでした。"
     if wti >= 2.0: return "原油価格が上昇しており、インフレ懸念が意識されやすい状況です。"
     if wti <= -2.0: return "原油価格が下落しており、インフレ圧力はやや和らいでいます。"
     return "商品市場は比較的落ち着いた動きです。"
-
 
 def generate_rates_comment(data):
     us10 = get_change(data.get("us10y"))
@@ -552,50 +505,24 @@ def generate_rates_comment(data):
         return "長期金利が上昇しており、金融環境は引き締まり方向です。"
     return "金利は大きな変動なく推移しています。"
 
+# ★ 新規追加：日本イールドカーブコメント
+def generate_jp_rates_comment(data):
+    jp10 = get_change(data.get("jp10y"))
+    spread = data.get("jp_yield_spread")
 
-def generate_crypto_comment(data):
-    btc = get_change(data.get("btc"))
-    if btc is None: return "仮想通貨市場のデータが取得できませんでした。"
-    if btc >= 2.0: return "BTCは強い上昇を見せており、リスク選好が強まっています。"
-    if btc <= -2.0: return "BTCは下落しており、リスク回避姿勢が見られます。"
-    return "仮想通貨市場は落ち着いた動きです。"
+    if jp10 is None:
+        return "日本の金利データが取得できませんでした。"
 
+    if spread is not None and spread < 0:
+        return "日本のイールドカーブは逆転しており、景気減速懸念が意識されます。"
 
-def generate_copilot_view(data):
-    fgi = data.get("fgi", "N/A")
-    vix = data.get("vix")[0] if isinstance(data.get("vix"), tuple) else "N/A"
-    us10y = data.get("us10y")[0] if isinstance(data.get("us10y"), tuple) else "N/A"
+    if jp10 <= -0.05:
+        return "日本の長期金利は低下しており、金融環境はやや緩和方向です。"
 
-    nk_ch = data.get("nikkei_change", 0)
-    sp_ch = data.get("sp500_change", 0)
-    wti_ch = data.get("wti_change", 0)
+    if jp10 >= 0.05:
+        return "日本の長期金利は上昇しており、金融環境は引き締まり方向です。"
 
-    score = data.get("score", "N/A")
-    judge = data.get("judge", "N/A")
-
-    prompt = f"""
-【軍師への分析依頼】
-あなたは冷徹かつ鋭い視点を持つ投資ストラテジストです。
-以下の市場データから、数値の単なる読み上げ（オウム返し）を厳禁し、相場の「歪み」や「深層リスク」をあぶり出してください。
-
-■市場データ
-・投資家心理(FGI): {fgi}
-・恐怖指数(VIX): {vix}
-・VIX先物の使用指標: {data.get("vix_f_source", "N/A")}
-・米10年債利回り: {us10y}%
-・日経平均騰落: {nk_ch:+.2f}%
-・S&P500騰落: {sp_ch:+.2f}%
-・原油(WTI)騰落: {wti_ch:+.2f}%
-・システム総合判定: {score}点（{judge}）
-
-■回答ルール
-1. 【今日の核心】として、今最も注目すべき矛盾や変化を一行で断定せよ。
-2. 地政学リスクが「価格に織り込み済み（ノイズ）」か「実害レベル」か、原油とVIXの動きから判断せよ。
-3. 最後に、個人投資家が今日絶対に避けるべき行動を一つ助言せよ。
-150文字程度で、プロらしい硬派な口調で頼む。
-"""
-    return prompt
-
+    return "日本の金利は大きな変動なく推移しています。"
 # ============================================
 # メイン：市場データ取得
 # ============================================
@@ -606,17 +533,15 @@ def get_market_data():
     data["fgi"], data["fgi_prev"] = get_fgi()
     data["fgi_comment"] = generate_fgi_comment(data)
 
-    # --- get_market_data() 関数の中身を以下のように書き換え ---
+    # 日本市場
+    nikkei_tuple, topix_tuple, mothers = get_japan_indices()
 
-    # 日本市場の取得
-    nikkei_tuple, topix_tuple, mothers = get_japan_indices()
-    
-    # 日経（先物）：(値, 変化率) を保存
-    nikkei_tuple, topix_tuple, mothers = get_japan_indices()
     data["nikkei"] = (nikkei_tuple[0], nikkei_tuple[1])
     data["nikkei_source"] = nikkei_tuple[2]
+
     data["topix"] = (topix_tuple[0], topix_tuple[1])
     data["topix_source"] = topix_tuple[2]
+
     data["mothers"] = mothers
 
     # 米国市場
@@ -631,13 +556,24 @@ def get_market_data():
     data["vix_f"], data["vix_f_source"] = get_vix_futures_super_safe(vix_price, vix_change)
     data["vix_comment"] = generate_vix_comment(data)
 
-    # 金利
+    # 米金利
     data["us10y"] = get_price_smart("^TNX", tv_symbol="TVC:US10Y")
     data["us2y"] = get_price_smart("^IRX")
+
     if data["us10y"][0] is not None and data["us2y"][0] is not None:
         data["yield_spread"] = data["us10y"][0] - data["us2y"][0]
     else:
         data["yield_spread"] = None
+
+    # ★ 日本金利（新規追加）
+    data["jp10y"], data["jp2y"] = get_jp_rates()
+
+    if data["jp10y"][0] is not None and data["jp2y"][0] is not None:
+        data["jp_yield_spread"] = data["jp10y"][0] - data["jp2y"][0]
+    else:
+        data["jp_yield_spread"] = None
+
+    data["jp_rates_comment"] = generate_jp_rates_comment(data)
 
     # コモディティ
     data["gold"] = get_price_smart("GC=F", tv_symbol="TVC:GOLD")
@@ -653,20 +589,21 @@ def get_market_data():
     data["btc"] = get_price_smart("BTC-USD", tv_symbol="CRYPTO:BTCUSD")
     data["eth"] = get_eth()
 
-    # 変化率を補助的に保存（Copilot View 用）
+    # 変化率（補助）
     data["nikkei_change"] = get_change(data["nikkei"])
     data["sp500_change"] = get_change(data["sp500"])
     data["wti_change"] = get_change(data["wti"])
 
-    # スコア・コメント類
+    # スコア・コメント
     data["score"], data["raw_score"], data["raw_max"], data["judge"] = generate_score(data)
     data["comment"] = generate_comment(data)
     data["us_comment"] = generate_us_comment(data)
     data["fx_comment"] = generate_fx_comment(data)
     data["commodities_comment"] = generate_commodities_comment(data)
     data["rates_comment"] = generate_rates_comment(data)
-    data["crypto_comment"] = generate_crypto_comment(data)
-    data["copilot_view"] = generate_copilot_view(data)
+
+    # 日本金利コメント（追加済）
+    data["jp_rates_comment"] = generate_jp_rates_comment(data)
 
     # ニュース処理
     news_list = fetch_news()
