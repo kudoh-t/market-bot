@@ -346,17 +346,14 @@ def get_jp_rates():
         if not rows:
             return (None, None), (None, None)
 
-        # 最新行を取得
         latest = rows[-1]
 
-        # 日銀APIのキー名（例）
         jp10 = latest.get("10year")
         jp2  = latest.get("2year")
 
         if jp10 is None or jp2 is None:
             return (None, None), (None, None)
 
-        # 変化率は日銀APIにないので None にする
         return (float(jp10), None), (float(jp2), None)
 
     except Exception as e:
