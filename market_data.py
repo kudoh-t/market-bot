@@ -339,7 +339,7 @@ def get_eth():
 # ============================================
 def get_jp_rates():
     try:
-        url = "https://www3.boj.or.jp/market/jp/stat/jgb_yields.htm"
+        url = "https://www3.boj.or.jp/market/jp/stat/jgb_yields.json"
         res = requests.get(url, headers=headers, timeout=10).json()
 
         rows = res.get("data", [])
@@ -359,6 +359,7 @@ def get_jp_rates():
     except Exception as e:
         print("JP rates error:", e)
         return (None, None), (None, None)
+
 
 # ============================================
 # スコア・コメント
