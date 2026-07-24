@@ -338,9 +338,30 @@ def get_eth():
 # ★ 日本金利（新規追加）
 # ============================================
 def get_jp_rates():
-    jp10y = get_from_investing("https://www.investing.com/rates-bonds/japan-10-year-bond-yield")
-    jp2y  = get_from_investing("https://www.investing.com/rates-bonds/japan-2-year-bond-yield")
-    return jp10y, jp2y
+    try:
+        url = "https://www3.boj.or.jp/market/jp/stat/jgb_yields.htm"
+        res = requests.get(url, headers=headers, timeout=10).json()
+
+        rows = res.get("data", [])
+        if not rows:
+            return (None, None), (None, None)
+
+        # 最新行を取得
+        latest = rows[-1]
+
+        # 日銀APIのキー名（例）
+        jp10 = latest.get("10year")
+        jp2  = latest.get("2year")
+
+        if jp10 is None or jp2 is None:
+            return (None, None), (None, None)
+
+        # 変化率は日銀APIにないので None にする
+        return (float(jp10), None), (float(jp2), None)
+
+    except Exception as e:
+        print("JP rates error:", e)
+        return (None, None), (None, None)
 
 # ============================================
 # スコア・コメント
