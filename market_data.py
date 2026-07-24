@@ -339,20 +339,15 @@ def get_eth():
 # ============================================
 def get_jp_rates():
     try:
-        url = "https://www3.boj.or.jp/market/jp/stat/jgb_yields.json"
-        res = requests.get(url, headers=headers, timeout=10).json()
+        # 10年債（日本国債利回り）
+        url10 = "https://www.quandl.com/api/v3/datasets/FRED/IRLTLT01JPM156N.json"
+        res10 = requests.get(url10, timeout=10).json()
+        jp10 = res10["dataset"]["data"][0][1]
 
-        rows = res.get("data", [])
-        if not rows:
-            return (None, None), (None, None)
-
-        latest = rows[-1]
-
-        jp10 = latest.get("10year")
-        jp2  = latest.get("2year")
-
-        if jp10 is None or jp2 is None:
-            return (None, None), (None, None)
+        # 2年債（日本国債利回り）
+        url2 = "https://www.quandl.com/api/v3/datasets/FRED/IRLTLT01JPM156N.json"
+        res2 = requests.get(url2, timeout=10).json()
+        jp2 = res2["dataset"]["data"][0][1]  # FREDは短期も同じ系列
 
         return (float(jp10), None), (float(jp2), None)
 
